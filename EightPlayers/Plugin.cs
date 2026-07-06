@@ -28,7 +28,13 @@ namespace EightPlayers
 
             var harmony = new Harmony(Guid);
             harmony.PatchAll(Assembly.GetExecutingAssembly());
+            JoystickBinding.Init();
             Log.LogInfo($"EightPlayers loaded. Player cap: {MaxPlayers.Value}, LAN menu: {ShowLanMenu.Value}");
+        }
+
+        private void Update()
+        {
+            JoystickBinding.Tick();
         }
     }
 

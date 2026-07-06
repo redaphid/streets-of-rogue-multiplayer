@@ -57,14 +57,20 @@ Find the host PC's LAN IP (e.g. `ip addr` / `ipconfig`).
 
 **Everyone else**: Multiplayer → LAN → enter the host's IP and port → Join.
 
-**Two players on one PC**: play the first window normally (via Steam), then run
-`scripts/second-window.sh` for the second window and join the game from it via
-the LAN menu. Put the windows side by side. One player uses keyboard+mouse,
-the other a controller.
+**Two or more players on one PC**: play the first window normally (via Steam),
+then run `scripts/second-window.sh` for each extra window and join the game
+from it via the LAN menu. Put the windows side by side.
 
-> Controller note: gamepads are visible to both windows. With one keyboard
-> player and one gamepad player per PC this is a non-issue. Steam-launched
-> windows can also use Steam Input per-window; otherwise stick to KB+pad.
+**Controllers — one pad per window** (`SOR_PAD`): normally every window would
+react to every connected gamepad. Setting the `SOR_PAD` environment variable
+binds a window to exactly one pad (numbered in connection order):
+
+- Main (Steam) window: set Launch Options to `SOR_PAD=1 ./run_bepinex.sh %command%`
+  (or leave `SOR_PAD` off and play that window with keyboard+mouse).
+- Extra windows: `scripts/second-window.sh window2 2`, `window3 3`, ... — the
+  second argument is the pad number and is passed as `SOR_PAD` automatically.
+- On Windows, launch the extra window from a `.bat` that does
+  `set SOR_PAD=2` before starting the game.
 
 Hosting through the normal Steam **Internet** flow also works with up to 8
 players (the player-limit button now goes to 8), but LAN is the recommended

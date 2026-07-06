@@ -36,6 +36,10 @@
       <HintPath>$(ManagedDir)/com.rlabrecque.steamworks.net.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Rewired_Core">
+      <HintPath>$(ManagedDir)/Rewired_Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine">
       <HintPath>$(ManagedDir)/UnityEngine.dll</HintPath>
       <Private>false</Private>

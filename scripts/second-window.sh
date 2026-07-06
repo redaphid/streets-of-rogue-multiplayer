@@ -10,10 +10,17 @@
 # executable), so this creates a lightweight clone directory with a hard-linked
 # executable and symlinked data, then starts the game from there.
 #
-# Usage: ./second-window.sh [name]     e.g. ./second-window.sh window2
+# Usage: ./second-window.sh [name] [pad-number]
+#   ./second-window.sh                 -> window2, uses gamepad 2
+#   ./second-window.sh window3 3       -> third window, uses gamepad 3
+#
+# pad-number binds the window to ONE gamepad (1 = first pad connected).
+# The Steam-launched main window should get SOR_PAD=1 via its launch options:
+#   SOR_PAD=1 ./run_bepinex.sh %command%
 set -u
 
 NAME="${1:-window2}"
+PAD="${2:-2}"
 GAME="$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Streets of Rogue"
 CLONES="$HOME/.var/app/com.valvesoftware.Steam/data/sor-clones"
 C="$CLONES/$NAME"
@@ -34,5 +41,5 @@ if [ ! -d "$C" ]; then
     chmod +x "$C/run_bepinex.sh"
 fi
 
-exec flatpak run --command=sh com.valvesoftware.Steam -c \
+exec flatpak run --command=sh --env=SOR_PAD="$PAD" com.valvesoftware.Steam -c \
     "cd \"\$HOME/.var/app/com.valvesoftware.Steam/data/sor-clones/$NAME\" 2>/dev/null || cd \"$C\"; exec ./run_bepinex.sh -screen-fullscreen 0"
