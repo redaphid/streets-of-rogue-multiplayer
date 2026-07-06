@@ -1,0 +1,10 @@
+# Decompiled game source — copyrighted game code, kept local only.
+# Regenerate with: ilspycmd -p -o decompiled --nested-directories -r "<game>/StreetsOfRogueLinux_Data/Managed" "<game>/.../Assembly-CSharp.dll"
+/decompiled/
+
+# Build output
+bin/
+obj/
+
+# Generated artifacts
+outputs/
