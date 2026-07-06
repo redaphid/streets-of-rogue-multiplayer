@@ -38,7 +38,14 @@ BepInEx 5.4.23 + the plugin are installed in the game folder:
 To make Steam start the game with the mod, set the game's **Launch Options**
 (Steam → Streets of Rogue → Properties → General):
 
-    ./run_bepinex.sh %command%
+    SOR_PAD=1 ./run_bepinex.sh # %command%
+
+The `#` matters: this flatpak Steam expands `%command%` with the Steam Linux
+Runtime container chain in an order run_bepinex.sh cannot parse (and the
+container's glibc is too old for BepInEx's doorstop anyway). Commenting the
+chain out runs the modded game directly in the flatpak environment, where
+everything works. Trade-off: no Steam Overlay. Drop `SOR_PAD=1` if the player
+on the main window uses keyboard+mouse.
 
 ## Install (other PCs, e.g. the nephews' Windows machines)
 
@@ -75,6 +82,22 @@ binds a window to exactly one pad (numbered in connection order):
 Hosting through the normal Steam **Internet** flow also works with up to 8
 players (the player-limit button now goes to 8), but LAN is the recommended
 path for mixed multi-window setups.
+
+## 8BitDo Zero 2 controllers
+
+Zero 2 pads (no sticks, no triggers) are detected automatically and get a
+compact layout — no manual rebinding needed:
+
+| | | | |
+|---|---|---|---|
+| D-pad: move + menus | X: attack | A: interact | B: cancel |
+| Y: special ability | L: inventory | R: cycle item | Select: use health |
+| Start: pause menu | | | |
+
+Power the pad on in Windows mode (**X + Start**), pair via Bluetooth
+(hold Select 3 s until the LED blinks fast). Turn **Auto-Aim On** in
+Settings → Gameplay to make up for the missing right stick. Config:
+`ZeroTwoAutoMap` / `ZeroTwoMatch` in the mod's cfg.
 
 ## Building
 

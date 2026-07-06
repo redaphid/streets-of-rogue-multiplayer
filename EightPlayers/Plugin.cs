@@ -16,6 +16,8 @@ namespace EightPlayers
 
         internal static ConfigEntry<int> MaxPlayers;
         internal static ConfigEntry<bool> ShowLanMenu;
+        internal static ConfigEntry<bool> ZeroTwoAutoMap;
+        internal static ConfigEntry<string> ZeroTwoMatch;
         internal static ManualLogSource Log;
 
         private void Awake()
@@ -25,6 +27,10 @@ namespace EightPlayers
                 new ConfigDescription("Maximum total players in an online game (vanilla: 4)", new AcceptableValueRange<int>(2, 16)));
             ShowLanMenu = Config.Bind("General", "ShowLanMenu", true,
                 "Re-enable the hidden LAN (direct IP) multiplayer menu. Needed to run several game instances on one computer.");
+            ZeroTwoAutoMap = Config.Bind("Controllers", "ZeroTwoAutoMap", true,
+                "Automatically install a compact button layout for 8BitDo Zero 2 controllers (no sticks/triggers).");
+            ZeroTwoMatch = Config.Bind("Controllers", "ZeroTwoMatch", "8bitdo zero",
+                "Space-separated tokens that must all appear in a joystick's name for it to be treated as a Zero 2.");
 
             var harmony = new Harmony(Guid);
             harmony.PatchAll(Assembly.GetExecutingAssembly());
@@ -35,6 +41,7 @@ namespace EightPlayers
         private void Update()
         {
             JoystickBinding.Tick();
+            ZeroTwoMapping.Tick();
         }
     }
 
