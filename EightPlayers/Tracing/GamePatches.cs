@@ -196,7 +196,9 @@ namespace EightPlayers.Tracing
         }
     }
 
-    [HarmonyPatch(typeof(LoadLevel), "SetupBasicLevel")]
+    // SetupMore2 is on the always-run generation chain (SetupBasicLevel is
+    // only reached for special map shapes) and the seed is resolved before it.
+    [HarmonyPatch(typeof(LoadLevel), "SetupMore2")]
     internal static class TraceLevelSeed_Patch
     {
         private static void Prefix(LoadLevel __instance)

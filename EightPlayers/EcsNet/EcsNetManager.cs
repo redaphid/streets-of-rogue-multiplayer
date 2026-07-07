@@ -28,12 +28,30 @@ namespace EightPlayers.EcsNet
         private int _nextTmp = 1;
         private Sprite _ghostSprite;
 
+        public static EcsNetManager Instance { get; private set; }
+
         private sealed class LocalPlayer
         {
             public Agent Agent;
             public int Entity = -1;
             public int Tmp = -1;
             public Vector2 LastSent = new Vector2(float.NaN, float.NaN);
+            public bool HpDirty;
+        }
+
+        private void Awake()
+        {
+            Instance = this;
+        }
+
+        /// <summary>Called from the ChangeHealth choke-point hook (EcsHooks).</summary>
+        public void OnLocalHealthChanged(Agent agent)
+        {
+            if (agent == null)
+                return;
+            foreach (var lp in _locals)
+                if (ReferenceEquals(lp.Agent, agent))
+                    lp.HpDirty = true;
         }
 
         private sealed class Ghost
@@ -81,7 +99,12 @@ namespace EightPlayers.EcsNet
             UpdateGhosts();
         }
 
-        private void OnDestroy() => TearDown();
+        private void OnDestroy()
+        {
+            if (Instance == this)
+                Instance = null;
+            TearDown();
+        }
 
         private void TearDown()
         {
@@ -193,6 +216,8 @@ namespace EightPlayers.EcsNet
                 _world.Set(e, new Pos { X = (float)pos["x"], Y = (float)pos["y"] });
             if (components["player"] is JObject player)
                 _world.Set(e, new PlayerInfo { Name = (string)player["name"], Color = (int?)player["color"] ?? 0 });
+            if (components["hp"] is JObject hp)
+                _world.Set(e, new Hp { Cur = (float?)hp["cur"] ?? 0, Max = (float?)hp["max"] ?? 0 });
         }
 
         // ---- outgoing ----
@@ -219,13 +244,23 @@ namespace EightPlayers.EcsNet
                         continue; // spawn in flight
                     lp.Tmp = _nextTmp++;
                     var name = _locals.Count > 1 ? $"{PlayerName}.{i + 1}" : PlayerName;
-                    _client.Send(Protocol.Spawn(lp.Tmp, Protocol.PlayerComponents(name, i + 1, p.x, p.y)));
+                    _client.Send(Protocol.Spawn(lp.Tmp,
+                        Protocol.PlayerComponents(name, i + 1, p.x, p.y, lp.Agent.health, lp.Agent.healthMax)));
                     lp.LastSent = p;
+                    lp.HpDirty = false;
                 }
-                else if ((p - lp.LastSent).sqrMagnitude > MinMove * MinMove)
+                else
                 {
-                    _client.Send(Protocol.Set(lp.Entity, Protocol.PosComponent(p.x, p.y)));
-                    lp.LastSent = p;
+                    if ((p - lp.LastSent).sqrMagnitude > MinMove * MinMove)
+                    {
+                        _client.Send(Protocol.Set(lp.Entity, Protocol.PosComponent(p.x, p.y)));
+                        lp.LastSent = p;
+                    }
+                    if (lp.HpDirty)
+                    {
+                        _client.Send(Protocol.Set(lp.Entity, Protocol.HpComponent(lp.Agent.health, lp.Agent.healthMax)));
+                        lp.HpDirty = false;
+                    }
                 }
             }
         }
@@ -268,6 +303,10 @@ namespace EightPlayers.EcsNet
                     _ghosts[e] = ghost;
                 }
                 ghost.Target = new Vector2(pos.X, pos.Y);
+                if (ghost.Label != null)
+                    ghost.Label.text = _world.TryGet<Hp>(e, out var hp)
+                        ? $"{info.Name} {hp.Cur:0}/{hp.Max:0}"
+                        : info.Name;
             });
 
             foreach (var ghost in _ghosts.Values)

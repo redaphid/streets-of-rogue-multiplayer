@@ -21,13 +21,23 @@ namespace EightPlayers.Tests
         [Fact]
         public void SpawnShape()
         {
-            var jo = JObject.Parse(Protocol.Spawn(7, Protocol.PlayerComponents("bob", 2, 1.5f, -3f)));
+            var jo = JObject.Parse(Protocol.Spawn(7, Protocol.PlayerComponents("bob", 2, 1.5f, -3f, 90f, 100f)));
             Assert.Equal("spawn", (string)jo["t"]);
             Assert.Equal(7, (int)jo["tmp"]);
             Assert.Equal("bob", (string)jo["components"]["player"]["name"]);
             Assert.Equal(2, (int)jo["components"]["player"]["color"]);
             Assert.Equal(1.5f, (float)jo["components"]["pos"]["x"]);
             Assert.Equal(-3f, (float)jo["components"]["pos"]["y"]);
+            Assert.Equal(90f, (float)jo["components"]["hp"]["cur"]);
+            Assert.Equal(100f, (float)jo["components"]["hp"]["max"]);
+        }
+
+        [Fact]
+        public void HpComponentShape()
+        {
+            var jo = Protocol.HpComponent(33f, 50f);
+            Assert.Equal(33f, (float)jo["hp"]["cur"]);
+            Assert.Equal(50f, (float)jo["hp"]["max"]);
         }
 
         [Fact]

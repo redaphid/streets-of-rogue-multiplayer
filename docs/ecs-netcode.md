@@ -38,6 +38,18 @@ game instance A                    Cloudflare edge                   game instan
 - Tests: `scripts/test/ecs_room_sim.mjs` (protocol semantics, 14 assertions),
   `scripts/test/ecs_room_watch.mjs` (spectate a live room).
 
+## Migration method (strangler-fig, per system)
+
+Each vanilla system is replaced one at a time: (1) instrument its choke
+points (docs/trace-choke-points.md) → (2) capture baseline traces + tests →
+(3) implement the ECS version event-driven off the same choke points →
+(4) `scripts/test/trace_diff.mjs` vanilla-vs-ECS → (5) flip the default.
+
+Ported so far:
+- **Health**: `StatusEffects.ChangeHealth` hook (EcsHooks) marks the local
+  player dirty; next publish tick sends an `hp` component; peers render it
+  on ghost labels. First event-driven (non-polled) system.
+
 ## Phase plan
 
 1. **Presence (done)** — players see each other as ghosts across the internet.

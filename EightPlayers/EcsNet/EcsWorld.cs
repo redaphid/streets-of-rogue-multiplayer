@@ -24,6 +24,12 @@ namespace EightPlayers.EcsNet
         public int ClientId;
     }
 
+    public struct Hp
+    {
+        public float Cur;
+        public float Max;
+    }
+
     public sealed class EcsWorld
     {
         private interface IStore

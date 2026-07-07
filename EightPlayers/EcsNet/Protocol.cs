@@ -28,11 +28,15 @@ namespace EightPlayers.EcsNet
         public static JObject PosComponent(float x, float y) =>
             new JObject { ["pos"] = new JObject { ["x"] = x, ["y"] = y } };
 
-        public static JObject PlayerComponents(string name, int color, float x, float y) =>
+        public static JObject HpComponent(float cur, float max) =>
+            new JObject { ["hp"] = new JObject { ["cur"] = cur, ["max"] = max } };
+
+        public static JObject PlayerComponents(string name, int color, float x, float y, float hp, float hpMax) =>
             new JObject
             {
                 ["player"] = new JObject { ["name"] = name, ["color"] = color },
                 ["pos"] = new JObject { ["x"] = x, ["y"] = y },
+                ["hp"] = new JObject { ["cur"] = hp, ["max"] = hpMax },
             };
     }
 
