@@ -20,6 +20,21 @@ namespace EightPlayers.EcsNet
 
         private readonly Dictionary<int, Avatar> _avatars = new Dictionary<int, Avatar>();
 
+        /// <summary>Reverse lookup: is this agent one of our avatars, and for which entity?</summary>
+        public bool TryGetEntityFor(Agent agent, out int entity)
+        {
+            foreach (var kv in _avatars)
+            {
+                if (ReferenceEquals(kv.Value.Agent, agent))
+                {
+                    entity = kv.Key;
+                    return true;
+                }
+            }
+            entity = -1;
+            return false;
+        }
+
         public void Sync(EcsWorld world, int myClientId, LevelId here)
         {
             world.ForEach<PlayerInfo>((e, info) =>

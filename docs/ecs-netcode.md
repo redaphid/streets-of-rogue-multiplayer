@@ -46,6 +46,15 @@ points (docs/trace-choke-points.md) → (2) capture baseline traces + tests →
 (4) `scripts/test/trace_diff.mjs` vanilla-vs-ECS → (5) flip the default.
 
 Ported so far:
+- **PvP damage**: hits on a remote player's avatar relay as `pvp-hit` events
+  to the owner, who applies them authoritatively through vanilla
+  ChangeHealth (each player owns their own hp); the resulting hp component
+  converges everywhere. Local avatar damage is cosmetic.
+- **NPC sync**: generation NPCs mirror by spawn-order index from the
+  lowest-client-id authority (pos batched, hp, death); dynamic post-load
+  spawns are suppressed on followers and mirrored from authority-published
+  entities (pseudo-agents like ObjectAgent excluded). Regression gate:
+  `scripts/test/e2e_scenario.sh` (18 assertions, two live instances).
 - **Health**: `StatusEffects.ChangeHealth` hook (EcsHooks) marks the local
   player dirty; next publish tick sends an `hp` component; peers render it
   on ghost labels. First event-driven (non-polled) system.

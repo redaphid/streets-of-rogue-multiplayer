@@ -17,9 +17,9 @@ namespace EightPlayers.EcsNet
                 .OrderByDescending(m => m.GetParameters().Length)
                 .First();
 
-        private static void Postfix(StatusEffects __instance)
+        private static void Postfix(StatusEffects __instance, float healthNum)
         {
-            EcsNetManager.Instance?.OnLocalHealthChanged(__instance.agent);
+            EcsNetManager.Instance?.OnLocalHealthChanged(__instance.agent, healthNum);
         }
     }
 

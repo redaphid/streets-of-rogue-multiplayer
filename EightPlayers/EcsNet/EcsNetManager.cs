@@ -84,7 +84,7 @@ namespace EightPlayers.EcsNet
         }
 
         /// <summary>Called from the ChangeHealth choke-point hook (EcsHooks).</summary>
-        public void OnLocalHealthChanged(Agent agent)
+        public void OnLocalHealthChanged(Agent agent, float delta = 0f)
         {
             if (agent == null)
                 return;
@@ -94,6 +94,15 @@ namespace EightPlayers.EcsNet
                     lp.HpDirty = true;
                     return;
                 }
+            // A hit on someone's avatar is a hit on THAT player: relay it so
+            // the owner applies authoritative damage to their real character.
+            // The local avatar's hp change is cosmetic; the owner's hp
+            // component update overwrites it.
+            if (_welcomed && delta != 0f && _avatars.TryGetEntityFor(agent, out var entity))
+            {
+                _client.Send(Protocol.Event("pvp-hit", new JObject { ["e"] = entity, ["dmg"] = delta }));
+                return;
+            }
             if (_wasNpcAuthority)
                 _npcs.MarkNpcHealth(agent);
         }
@@ -361,6 +370,26 @@ namespace EightPlayers.EcsNet
                     {
                         EightPlayersPlugin.Log.LogWarning($"ECSNET door-open apply failed: {ex.GetType().Name}: {ex.Message}");
                     }
+                    return;
+                }
+
+                case "pvp-hit":
+                {
+                    // Damage aimed at MY player's avatar elsewhere: I am the
+                    // authority for my own hp — apply through vanilla
+                    // ChangeHealth, which republishes the hp component.
+                    var entity = (int?)msg.EventData?["e"] ?? -1;
+                    var dmg = (float?)msg.EventData?["dmg"] ?? 0f;
+                    if (entity < 0 || dmg == 0f)
+                        return;
+                    foreach (var lp in _locals)
+                        if (lp.Entity == entity && lp.Agent != null)
+                        {
+                            lp.Agent.statusEffects.ChangeHealth(dmg);
+                            EightPlayersPlugin.Log.LogInfo(
+                                $"ECSNET pvp hit from peer {msg.From}: {dmg:0.#} hp -> {lp.Agent.health:0.#}");
+                            return;
+                        }
                     return;
                 }
 

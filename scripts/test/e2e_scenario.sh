@@ -133,6 +133,21 @@ for _ in $(seq 1 240); do
 done
 [ "$RESPAWNED" -eq 0 ] && ok "avatars respawned on level 2" || fail "avatars respawned on level 2"
 
+echo "[9/9] player-vs-player: hit on avatar lands on the real player"
+sleep 5
+AVUID=$(cmd ecs0 agents | grep "'E2EB'" | grep -o 'uid=[0-9]*' | head -1 | cut -d= -f2)
+if [ -z "$AVUID" ]; then
+  fail "B's avatar found on A"
+else
+  ok "B's avatar found on A (uid $AVUID)"
+  BHP_BEFORE=$(cmd ecs1 state | grep "player:" | grep -o 'hp=[0-9.]*' | head -1 | cut -d= -f2)
+  cmd ecs0 "hp $AVUID -10" >/dev/null
+  sleep 6
+  BHP_AFTER=$(cmd ecs1 state | grep "player:" | grep -o 'hp=[0-9.]*' | head -1 | cut -d= -f2)
+  check "[ \"\$(echo \"$BHP_BEFORE > $BHP_AFTER\" | bc)\" = 1 ]" "B's real player took the hit ($BHP_BEFORE -> $BHP_AFTER)"
+  cmd ecs0 ecs | grep "E2EB" | grep -q "hp=$BHP_AFTER" && ok "B's new hp visible on A" || fail "B's new hp visible on A"
+fi
+
 echo
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
