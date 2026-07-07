@@ -18,8 +18,35 @@ BepInEx mod removes both limits.
   Steam), it now runs in platform-less mode instead of crash-looping in the
   GOG Galaxy fallback. LAN play works fine there.
 
+## Internet co-op over Cloudflare (ECS netcode)
+
+The mod also carries a from-scratch multiplayer layer that needs **no LAN, no
+port forwarding, no Steam**: rooms live in a Cloudflare Durable Object and the
+game syncs through it (players, NPCs, doors, items, level progression, PvP).
+Mirror — the game's built-in netcode — is not involved at all: everyone runs a
+normal **single-player** game and the layer mirrors the world.
+
+How to play together:
+
+1. Everyone installs the mod and presses **F9** at any time → enter the same
+   room code (and your name) → Join.
+2. Everyone starts a **NEW single-player game**. The first player's map seed
+   becomes the room's world, so everyone generates the identical map, sees each
+   other in it, and travels between levels together.
+
+Config section `[EcsNet]`: `ServerUrl` (your worker, e.g.
+`wss://sor-ecs-net.<account>.workers.dev`, default is a local dev server),
+`Room`, `PlayerName`, `RealAvatars`, `FollowRoomLevel`, `NpcSync`, `SendHz`.
+Server code lives in `worker/` (`npm run deploy` with a Cloudflare account).
+
+Architecture, migration method, and determinism findings:
+`docs/ecs-netcode.md` and `docs/trace-choke-points.md`. Regression suite:
+`scripts/test/e2e_scenario.sh` (20 assertions across two live instances; green
+in both LAN-host and pure single-player modes).
+
 Config file (created after first run):
-`BepInEx/config/com.hypnodroid.eightplayers.cfg` — `MaxPlayers`, `ShowLanMenu`.
+`BepInEx/config/com.hypnodroid.eightplayers.cfg` — `MaxPlayers`, `ShowLanMenu`,
+and the `[EcsNet]` co-op settings above.
 
 ## Layout of this project
 
