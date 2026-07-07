@@ -21,11 +21,12 @@ namespace EightPlayers.Tests
         [Fact]
         public void SpawnShape()
         {
-            var jo = JObject.Parse(Protocol.Spawn(7, Protocol.PlayerComponents("bob", 2, 1.5f, -3f, 90f, 100f)));
+            var jo = JObject.Parse(Protocol.Spawn(7, Protocol.PlayerComponents("bob", 2, "Thief", 1.5f, -3f, 90f, 100f)));
             Assert.Equal("spawn", (string)jo["t"]);
             Assert.Equal(7, (int)jo["tmp"]);
             Assert.Equal("bob", (string)jo["components"]["player"]["name"]);
             Assert.Equal(2, (int)jo["components"]["player"]["color"]);
+            Assert.Equal("Thief", (string)jo["components"]["player"]["char"]);
             Assert.Equal(1.5f, (float)jo["components"]["pos"]["x"]);
             Assert.Equal(-3f, (float)jo["components"]["pos"]["y"]);
             Assert.Equal(90f, (float)jo["components"]["hp"]["cur"]);
@@ -51,7 +52,7 @@ namespace EightPlayers.Tests
         [Fact]
         public void LevelMergesIntoPlayerComponents()
         {
-            var components = Protocol.PlayerComponents("a", 1, 0f, 0f, 100f, 100f);
+            var components = Protocol.PlayerComponents("a", 1, "Hobo", 0f, 0f, 100f, 100f);
             components.Merge(Protocol.LevelComponent(7, 1));
             Assert.Equal(7, (int)components["level"]["seed"]);
             Assert.Equal("a", (string)components["player"]["name"]);

@@ -17,6 +17,8 @@ namespace EightPlayers.EcsNet
     {
         public string Name;
         public int Color;
+        /// <summary>Game agent type (e.g. "Thief") used to spawn a matching avatar.</summary>
+        public string Char;
     }
 
     public struct Owned

@@ -25,6 +25,7 @@ namespace EightPlayers
         internal static ConfigEntry<string> EcsPlayerName;
         internal static ConfigEntry<int> EcsSendHz;
         internal static ConfigEntry<bool> EcsShowHud;
+        internal static ConfigEntry<bool> EcsRealAvatars;
         internal static ConfigEntry<bool> TraceEnabled;
         internal static ManualLogSource Log;
 
@@ -54,6 +55,8 @@ namespace EightPlayers
                 new ConfigDescription("Position updates per second sent to the room", new AcceptableValueRange<int>(1, 30)));
             EcsShowHud = Config.Bind("EcsNet", "ShowHud", true,
                 "Show a one-line ECSNET connection status overlay in the top-left corner.");
+            EcsRealAvatars = Config.Bind("EcsNet", "RealAvatars", true,
+                "Spawn a real (AI-disabled) game character for each remote player in the same world instead of a ghost marker.");
 
             TraceEnabled = Config.Bind("Tracing", "Enabled", false,
                 "Write a JSONL behavior trace (traces/trace-*.jsonl in the game dir) of state-mutating game events, used to verify ECS ports keep vanilla behavior. Env override: SOR_TRACE=1/0.");

@@ -18,6 +18,7 @@ namespace EightPlayers.EcsNet
         private readonly EcsWorld _world = new EcsWorld();
         private readonly List<LocalPlayer> _locals = new List<LocalPlayer>();
         private readonly Dictionary<int, Ghost> _ghosts = new Dictionary<int, Ghost>();
+        private readonly RemoteAvatars _avatars = new RemoteAvatars();
 
         private NetClient _client;
         private NetState _prevState = NetState.Disconnected;
@@ -46,6 +47,8 @@ namespace EightPlayers.EcsNet
             public int Tmp = -1;
             public Vector2 LastSent = new Vector2(float.NaN, float.NaN);
             public bool HpDirty;
+            public LevelId SentLevel;
+            public string SentChar;
         }
 
         private void Awake()
@@ -105,7 +108,15 @@ namespace EightPlayers.EcsNet
                 PublishLocalPlayers();
             }
 
-            UpdateGhosts();
+            if (EightPlayersPlugin.EcsRealAvatars.Value)
+            {
+                _avatars.Sync(_world, _myClientId, LocalLevel());
+                _avatars.Drive();
+            }
+            else
+            {
+                UpdateGhosts();
+            }
         }
 
         private void OnDestroy()
@@ -129,6 +140,7 @@ namespace EightPlayers.EcsNet
             _worldClaimSent = false;
             AdoptedSeed = null;
             _world.Clear();
+            _avatars.Clear();
             foreach (var ghost in _ghosts.Values)
                 if (ghost.Root != null) Destroy(ghost.Root);
             _ghosts.Clear();
@@ -212,6 +224,7 @@ namespace EightPlayers.EcsNet
 
                 case "despawn":
                     _world.Despawn(msg.Entity);
+                    _avatars.RemoveEntity(msg.Entity);
                     if (_ghosts.TryGetValue(msg.Entity, out var ghost))
                     {
                         if (ghost.Root != null) Destroy(ghost.Root);
@@ -236,7 +249,12 @@ namespace EightPlayers.EcsNet
             if (components["pos"] is JObject pos)
                 _world.Set(e, new Pos { X = (float)pos["x"], Y = (float)pos["y"] });
             if (components["player"] is JObject player)
-                _world.Set(e, new PlayerInfo { Name = (string)player["name"], Color = (int?)player["color"] ?? 0 });
+                _world.Set(e, new PlayerInfo
+                {
+                    Name = (string)player["name"],
+                    Color = (int?)player["color"] ?? 0,
+                    Char = (string)player["char"],
+                });
             if (components["hp"] is JObject hp)
                 _world.Set(e, new Hp { Cur = (float?)hp["cur"] ?? 0, Max = (float?)hp["max"] ?? 0 });
             if (components["level"] is JObject level)
@@ -268,12 +286,14 @@ namespace EightPlayers.EcsNet
                         continue; // spawn in flight
                     lp.Tmp = _nextTmp++;
                     var name = _locals.Count > 1 ? $"{PlayerName}.{i + 1}" : PlayerName;
-                    var components = Protocol.PlayerComponents(name, i + 1, p.x, p.y, lp.Agent.health, lp.Agent.healthMax);
+                    var components = Protocol.PlayerComponents(name, i + 1, lp.Agent.agentName, p.x, p.y, lp.Agent.health, lp.Agent.healthMax);
                     var here = LocalLevel();
                     components.Merge(Protocol.LevelComponent(here.Seed, here.Num));
                     _client.Send(Protocol.Spawn(lp.Tmp, components));
                     lp.LastSent = p;
                     lp.HpDirty = false;
+                    lp.SentLevel = here;
+                    lp.SentChar = lp.Agent.agentName;
                 }
                 else
                 {
@@ -286,6 +306,19 @@ namespace EightPlayers.EcsNet
                     {
                         _client.Send(Protocol.Set(lp.Entity, Protocol.HpComponent(lp.Agent.health, lp.Agent.healthMax)));
                         lp.HpDirty = false;
+                    }
+                    // Level or character changed since last publish (level gen
+                    // finished, elevator taken, char picked/transformed):
+                    // refresh the slow-changing components.
+                    var now = LocalLevel();
+                    if (now.Seed != lp.SentLevel.Seed || now.Num != lp.SentLevel.Num || lp.Agent.agentName != lp.SentChar)
+                    {
+                        var name = _locals.Count > 1 ? $"{PlayerName}.{i + 1}" : PlayerName;
+                        var refresh = Protocol.PlayerComponents(name, i + 1, lp.Agent.agentName, p.x, p.y, lp.Agent.health, lp.Agent.healthMax);
+                        refresh.Merge(Protocol.LevelComponent(now.Seed, now.Num));
+                        _client.Send(Protocol.Set(lp.Entity, refresh));
+                        lp.SentLevel = now;
+                        lp.SentChar = lp.Agent.agentName;
                     }
                 }
             }
@@ -439,6 +472,28 @@ namespace EightPlayers.EcsNet
                 case 6: return new Color(0.4f, 1f, 0.9f);
                 default: return new Color(0.8f, 0.8f, 0.8f);
             }
+        }
+
+        /// <summary>Multi-line dump of the ECS session for the command channel (`ecs`).</summary>
+        public string DebugDump()
+        {
+            var sb = new System.Text.StringBuilder();
+            var here = LocalLevel();
+            sb.AppendLine($"state={_client?.State} welcomed={_welcomed} me={_myClientId} room={RoomCode}");
+            sb.AppendLine($"adoptedSeed={AdoptedSeed ?? "(none)"} localLevel={here.Seed}/{here.Num} avatars={EightPlayersPlugin.EcsRealAvatars.Value}");
+            foreach (var lp in _locals)
+                sb.AppendLine($"  local agent={(lp.Agent == null ? "null" : lp.Agent.UID.ToString())} entity={lp.Entity} tmp={lp.Tmp}");
+            foreach (var e in _world.Entities)
+            {
+                _world.TryGet<Owned>(e, out var owned);
+                var parts = $"  entity {e} owner={owned.ClientId}";
+                if (_world.TryGet<PlayerInfo>(e, out var pi)) parts += $" player={pi.Name}/{pi.Char}/c{pi.Color}";
+                if (_world.TryGet<Pos>(e, out var pos)) parts += $" pos=({pos.X:0.#},{pos.Y:0.#})";
+                if (_world.TryGet<LevelId>(e, out var lvl)) parts += $" level={lvl.Seed}/{lvl.Num}";
+                if (_world.TryGet<Hp>(e, out var hp)) parts += $" hp={hp.Cur:0.#}/{hp.Max:0.#}";
+                sb.AppendLine(parts);
+            }
+            return sb.ToString().TrimEnd();
         }
 
         private void OnGUI()

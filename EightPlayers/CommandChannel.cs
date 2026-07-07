@@ -91,6 +91,11 @@ namespace EightPlayers
                     break;
                 case "enable": Enable(parts[1], parts[2] == "on"); break;
                 case "state": Out(GameStateApi.Summary()); break;
+                case "ecs":
+                    Out(EcsNet.EcsNetManager.Instance != null
+                        ? EcsNet.EcsNetManager.Instance.DebugDump()
+                        : "no EcsNetManager");
+                    break;
                 case "agents":
                     foreach (var agent in GameStateApi.Agents())
                         Out("  " + GameStateApi.DescribeAgent(agent));
