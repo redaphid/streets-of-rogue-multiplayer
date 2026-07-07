@@ -216,6 +216,23 @@ namespace EightPlayers.Tracing
         }
     }
 
+    [HarmonyPatch(typeof(LoadLevel), "IncreaseLevel")]
+    internal static class TraceLevelAdvance_Patch
+    {
+        private static void Postfix()
+        {
+            if (!Trace.Enabled)
+                return;
+            var gc = GameController.gameController;
+            Trace.Emit("level", "advance", new JObject
+            {
+                ["curLevel"] = gc.sessionDataBig.curLevel,
+                ["endless"] = gc.sessionDataBig.curLevelEndless,
+                ["actual"] = gc.sessionDataBig.curLevelActual,
+            });
+        }
+    }
+
     // Local input becoming motion, sampled: one event per agent per SampleEvery
     // fixed steps (50 Hz physics -> ~2 events/s/player). The full-rate signal
     // for parity diffing is positions, not forces, so sampling is fine.
