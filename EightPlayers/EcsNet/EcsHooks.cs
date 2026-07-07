@@ -32,6 +32,34 @@ namespace EightPlayers.EcsNet
         }
     }
 
+    // NPC spawn-order registry: every agent spawned during the load window
+    // gets the next index; the same index means the same NPC on every
+    // instance (spawn order is seed-deterministic).
+    [HarmonyPatch]
+    internal static class EcsNpcRegistryHook_Patch
+    {
+        private static MethodBase TargetMethod() =>
+            AccessTools.GetDeclaredMethods(typeof(SpawnerMain))
+                .Where(m => m.Name == "SpawnAgent")
+                .OrderByDescending(m => m.GetParameters().Length)
+                .First();
+
+        private static void Postfix(Agent __result)
+        {
+            if (__result != null)
+                EcsNetManager.Instance?.RegisterNpcSpawn(__result);
+        }
+    }
+
+    [HarmonyPatch(typeof(LoadLevel), "SetupMore2")]
+    internal static class EcsLevelGenHook_Patch
+    {
+        private static void Prefix()
+        {
+            EcsNetManager.Instance?.OnLevelGenerated();
+        }
+    }
+
     // Ground-item pickup by a local player. Success test: after Interact the
     // InvItem's database points at the picking agent's inventory. Remote
     // applies use DestroyMeFromClient (not Interact), so no loop.

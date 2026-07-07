@@ -19,6 +19,23 @@ namespace EightPlayers.EcsNet
         private readonly List<LocalPlayer> _locals = new List<LocalPlayer>();
         private readonly Dictionary<int, Ghost> _ghosts = new Dictionary<int, Ghost>();
         private readonly RemoteAvatars _avatars = new RemoteAvatars();
+        private readonly NpcSync _npcs = new NpcSync();
+        private readonly HashSet<int> _peerIds = new HashSet<int>();
+        private bool _wasNpcAuthority;
+
+        /// <summary>Lowest client id in the room simulates the NPCs.</summary>
+        public bool IsNpcAuthority
+        {
+            get
+            {
+                if (!_welcomed)
+                    return false;
+                foreach (var id in _peerIds)
+                    if (id < _myClientId)
+                        return false;
+                return true;
+            }
+        }
 
         private NetClient _client;
         private NetState _prevState = NetState.Disconnected;
@@ -127,6 +144,26 @@ namespace EightPlayers.EcsNet
             {
                 UpdateGhosts();
             }
+
+            if (EightPlayersPlugin.EcsNpcSync.Value && _welcomed)
+            {
+                var authority = IsNpcAuthority;
+                if (_wasNpcAuthority && !authority)
+                    _npcs.RetractPublished(this);
+                if (!_wasNpcAuthority && authority)
+                    _npcs.UnbindAll(); // we simulate now; give brains back
+                _wasNpcAuthority = authority;
+
+                if (authority)
+                {
+                    _npcs.PublishTick(this);
+                }
+                else
+                {
+                    _npcs.FollowerSync(_world, _myClientId);
+                    _npcs.Drive();
+                }
+            }
         }
 
         private void OnDestroy()
@@ -150,6 +187,9 @@ namespace EightPlayers.EcsNet
             _worldClaimSent = false;
             AdoptedSeed = null;
             RoomLevel = 1;
+            _peerIds.Clear();
+            _wasNpcAuthority = false;
+            _npcs.Reset();
             _world.Clear();
             _avatars.Clear();
             foreach (var ghost in _ghosts.Values)
@@ -195,6 +235,9 @@ namespace EightPlayers.EcsNet
                     _myClientId = msg.You;
                     _welcomed = true;
                     _world.Clear();
+                    _peerIds.Clear();
+                    foreach (var peer in msg.Peers)
+                        _peerIds.Add((int)peer["id"]);
                     foreach (var rec in msg.Snapshot)
                     {
                         var e = (int)rec["e"];
@@ -224,12 +267,18 @@ namespace EightPlayers.EcsNet
                     _world.Set(msg.Entity, new Owned { ClientId = msg.Owner });
                     ApplyComponents(msg.Entity, msg.Components);
                     if (msg.Tmp >= 0 && msg.Owner == _myClientId)
+                    {
+                        var claimed = false;
                         foreach (var lp in _locals)
                             if (lp.Tmp == msg.Tmp)
                             {
                                 lp.Entity = msg.Entity;
                                 lp.Tmp = -1;
+                                claimed = true;
                             }
+                        if (!claimed)
+                            _npcs.OnSpawnAck(msg.Tmp, msg.Entity);
+                    }
                     break;
 
                 case "set":
@@ -247,6 +296,8 @@ namespace EightPlayers.EcsNet
                     break;
 
                 case "peer":
+                    if (msg.Joined) _peerIds.Add(msg.PeerId);
+                    else _peerIds.Remove(msg.PeerId);
                     EightPlayersPlugin.Log.LogInfo($"ECSNET peer {msg.PeerName} {(msg.Joined ? "joined" : "left")}");
                     break;
 
@@ -342,6 +393,36 @@ namespace EightPlayers.EcsNet
             }
         }
 
+        // ---- NpcSync plumbing ----
+
+        internal int SendNpcSpawn(int index, string type, Vector2 pos)
+        {
+            var tmp = _nextTmp++;
+            _client.Send(Protocol.Spawn(tmp, Protocol.NpcComponents(index, type, pos.x, pos.y)));
+            return tmp;
+        }
+
+        internal void SendPos(int entity, Vector2 pos) =>
+            _client.Send(Protocol.Set(entity, Protocol.PosComponent(pos.x, pos.y)));
+
+        internal void SendDespawn(int entity) =>
+            _client.Send(Protocol.Despawn(entity));
+
+        /// <summary>Called from the SpawnAgent choke-point hook during level load.</summary>
+        public void RegisterNpcSpawn(Agent agent)
+        {
+            var gc = GameController.gameController;
+            if (gc == null || gc.loadComplete || agent == null || agent.isPlayer != 0)
+                return;
+            _npcs.Register(agent);
+        }
+
+        /// <summary>Called from the level-generation choke-point hook.</summary>
+        public void OnLevelGenerated()
+        {
+            _npcs.OnLevelGenerated();
+        }
+
         /// <summary>Called from the Item.Interact choke-point hook (EcsHooks).</summary>
         public void OnLocalItemPickup(string itemName, Vector2 pos)
         {
@@ -386,6 +467,8 @@ namespace EightPlayers.EcsNet
                 _world.Set(e, new Hp { Cur = (float?)hp["cur"] ?? 0, Max = (float?)hp["max"] ?? 0 });
             if (components["level"] is JObject level)
                 _world.Set(e, new LevelId { Seed = (int?)level["seed"] ?? 0, Num = (int?)level["num"] ?? 0 });
+            if (components["npc"] is JObject npc)
+                _world.Set(e, new NpcTag { Index = (int?)npc["i"] ?? -1, Type = (string)npc["type"] });
         }
 
         // ---- outgoing ----
@@ -646,6 +729,7 @@ namespace EightPlayers.EcsNet
             var here = LocalLevel();
             sb.AppendLine($"state={_client?.State} welcomed={_welcomed} me={_myClientId} room={RoomCode}");
             sb.AppendLine($"adoptedSeed={AdoptedSeed ?? "(none)"} localLevel={here.Seed}/{here.Num} avatars={EightPlayersPlugin.EcsRealAvatars.Value}");
+            sb.AppendLine($"npcAuthority={IsNpcAuthority} registeredNpcs={_npcs.RegisteredCount} peers=[{string.Join(",", _peerIds)}]");
             foreach (var lp in _locals)
                 sb.AppendLine($"  local agent={(lp.Agent == null ? "null" : lp.Agent.UID.ToString())} entity={lp.Entity} tmp={lp.Tmp}");
             foreach (var e in _world.Entities)

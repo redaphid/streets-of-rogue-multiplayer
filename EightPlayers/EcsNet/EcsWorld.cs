@@ -38,6 +38,13 @@ namespace EightPlayers.EcsNet
         public int Num;
     }
 
+    /// <summary>Marks an entity as a mirrored NPC; Index is its level spawn order.</summary>
+    public struct NpcTag
+    {
+        public int Index;
+        public string Type;
+    }
+
     public sealed class EcsWorld
     {
         private interface IStore

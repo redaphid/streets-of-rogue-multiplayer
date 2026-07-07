@@ -27,6 +27,7 @@ namespace EightPlayers
         internal static ConfigEntry<bool> EcsShowHud;
         internal static ConfigEntry<bool> EcsRealAvatars;
         internal static ConfigEntry<bool> EcsFollowLevel;
+        internal static ConfigEntry<bool> EcsNpcSync;
         internal static ConfigEntry<bool> TraceEnabled;
         internal static ManualLogSource Log;
 
@@ -60,6 +61,8 @@ namespace EightPlayers
                 "Spawn a real (AI-disabled) game character for each remote player in the same world instead of a ghost marker.");
             EcsFollowLevel = Config.Bind("EcsNet", "FollowRoomLevel", true,
                 "Automatically take the next-level transition when the room's party has moved ahead, so everyone travels together.");
+            EcsNpcSync = Config.Bind("EcsNet", "NpcSync", true,
+                "Mirror NPC positions from the room's NPC authority (lowest client id) so everyone sees the same characters in the same places.");
 
             TraceEnabled = Config.Bind("Tracing", "Enabled", false,
                 "Write a JSONL behavior trace (traces/trace-*.jsonl in the game dir) of state-mutating game events, used to verify ECS ports keep vanilla behavior. Env override: SOR_TRACE=1/0.");

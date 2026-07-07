@@ -43,6 +43,13 @@ namespace EightPlayers.EcsNet
         public static JObject LevelComponent(int seed, int num) =>
             new JObject { ["level"] = new JObject { ["seed"] = seed, ["num"] = num } };
 
+        public static JObject NpcComponents(int index, string type, float x, float y) =>
+            new JObject
+            {
+                ["npc"] = new JObject { ["i"] = index, ["type"] = type },
+                ["pos"] = new JObject { ["x"] = x, ["y"] = y },
+            };
+
         public static JObject PlayerComponents(string name, int color, string charType, float x, float y, float hp, float hpMax) =>
             new JObject
             {
