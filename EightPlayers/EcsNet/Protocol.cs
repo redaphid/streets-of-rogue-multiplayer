@@ -43,6 +43,9 @@ namespace EightPlayers.EcsNet
         public static JObject LevelComponent(int seed, int num) =>
             new JObject { ["level"] = new JObject { ["seed"] = seed, ["num"] = num } };
 
+        public static JObject DeadComponent() =>
+            new JObject { ["dead"] = new JObject { ["v"] = true } };
+
         public static JObject NpcComponents(int index, string type, float x, float y) =>
             new JObject
             {

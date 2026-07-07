@@ -25,15 +25,20 @@ namespace EightPlayers.EcsNet
             public int Entity = -1;
             public int Tmp = -1;
             public Vector2 LastSent;
+            public bool HpDirty;
+            public bool DeadDirty;
         }
 
         private sealed class Bound
         {
             public Agent Agent;
             public Vector2 Target;
+            public float AppliedHp = float.NaN;
+            public bool AppliedDead;
         }
 
         private readonly List<Agent> _byIndex = new List<Agent>();
+        private readonly Dictionary<Agent, int> _indexByAgent = new Dictionary<Agent, int>();
         private readonly Dictionary<int, Published> _published = new Dictionary<int, Published>(); // npc idx ->
         private readonly Dictionary<int, Bound> _bound = new Dictionary<int, Bound>();             // entity ->
         private float _nextPublishAt;
@@ -42,6 +47,7 @@ namespace EightPlayers.EcsNet
         public void OnLevelGenerated()
         {
             _byIndex.Clear();
+            _indexByAgent.Clear();
             _published.Clear();
             UnbindAll();
         }
@@ -49,6 +55,7 @@ namespace EightPlayers.EcsNet
         public void Reset()
         {
             _byIndex.Clear();
+            _indexByAgent.Clear();
             _published.Clear();
             UnbindAll();
         }
@@ -56,10 +63,60 @@ namespace EightPlayers.EcsNet
         /// <summary>Register a generation-window NPC spawn (from the SpawnAgent hook).</summary>
         public void Register(Agent agent)
         {
+            _indexByAgent[agent] = _byIndex.Count;
             _byIndex.Add(agent);
         }
 
+        /// <summary>Authority: a registered NPC's health changed (ChangeHealth hook).</summary>
+        public void MarkNpcHealth(Agent agent)
+        {
+            if (!_indexByAgent.TryGetValue(agent, out var i))
+            {
+                EightPlayersPlugin.Log.LogWarning($"ECSNET npc hp: agent {agent.UID} not in registry");
+                return;
+            }
+            if (!_published.TryGetValue(i, out var pub))
+            {
+                EightPlayersPlugin.Log.LogWarning($"ECSNET npc hp: index {i} not published");
+                return;
+            }
+            pub.HpDirty = true;
+        }
+
+        /// <summary>Authority: a registered NPC died (SetupDeath hook).</summary>
+        public void MarkNpcDeath(Agent agent)
+        {
+            if (!_indexByAgent.TryGetValue(agent, out var i))
+            {
+                EightPlayersPlugin.Log.LogWarning($"ECSNET npc death: agent {agent.UID} not in registry");
+                return;
+            }
+            if (!_published.TryGetValue(i, out var pub))
+            {
+                EightPlayersPlugin.Log.LogWarning($"ECSNET npc death: index {i} not published");
+                return;
+            }
+            pub.DeadDirty = true;
+            EightPlayersPlugin.Log.LogInfo($"ECSNET npc death queued for index {i} (agent {agent.UID})");
+        }
+
         public int RegisteredCount => _byIndex.Count;
+
+        public IEnumerable<string> DescribeRegistry()
+        {
+            for (int i = 0; i < _byIndex.Count; i++)
+            {
+                var agent = _byIndex[i];
+                _published.TryGetValue(i, out var pub);
+                if (agent == null)
+                {
+                    yield return $"  npc[{i}] (gone) entity={pub?.Entity ?? -1}";
+                    continue;
+                }
+                Vector2 p = agent.tr != null ? (Vector2)agent.tr.position : Vector2.zero;
+                yield return $"  npc[{i}] uid={agent.UID} {agent.agentName} pos=({p.x:0.#},{p.y:0.#}) dead={agent.dead} entity={pub?.Entity ?? -1}";
+            }
+        }
 
         /// <summary>Forwarded spawn ack for a tmp id we own. Returns false if not ours.</summary>
         public bool OnSpawnAck(int tmp, int entity)
@@ -89,13 +146,24 @@ namespace EightPlayers.EcsNet
                 var agent = _byIndex[i];
                 _published.TryGetValue(i, out var pub);
 
-                if (agent == null || agent.dead)
+                if (agent == null)
                 {
                     if (pub != null && pub.Entity >= 0)
                         net.SendDespawn(pub.Entity);
                     if (pub != null)
                         _published.Remove(i);
-                    _byIndex[i] = null;
+                    continue;
+                }
+
+                if (agent.dead)
+                {
+                    // Keep the entity as a corpse marker; publish death once.
+                    if (pub != null && pub.Entity >= 0 && pub.DeadDirty)
+                    {
+                        net.SendDead(pub.Entity, agent.health, agent.healthMax);
+                        pub.DeadDirty = false;
+                        pub.HpDirty = false;
+                    }
                     continue;
                 }
 
@@ -104,11 +172,19 @@ namespace EightPlayers.EcsNet
                 {
                     pub = new Published { Tmp = net.SendNpcSpawn(i, agent.agentName, p), LastSent = p };
                     _published[i] = pub;
+                    continue;
                 }
-                else if (pub.Entity >= 0 && (p - pub.LastSent).sqrMagnitude > MinMoveSqr)
+                if (pub.Entity < 0)
+                    continue;
+                if ((p - pub.LastSent).sqrMagnitude > MinMoveSqr)
                 {
                     net.SendPos(pub.Entity, p);
                     pub.LastSent = p;
+                }
+                if (pub.HpDirty)
+                {
+                    net.SendHp(pub.Entity, agent.health, agent.healthMax);
+                    pub.HpDirty = false;
                 }
             }
         }
@@ -145,6 +221,29 @@ namespace EightPlayers.EcsNet
                     _bound[e] = bound;
                 }
                 bound.Target = new Vector2(pos.X, pos.Y);
+
+                // Mirror authority combat state through vanilla-adjacent paths.
+                if (bound.Agent != null && !bound.Agent.dead)
+                {
+                    if (!bound.AppliedDead && world.TryGet<DeadTag>(e, out var dead) && dead.Value)
+                    {
+                        bound.AppliedDead = true;
+                        try
+                        {
+                            bound.Agent.statusEffects.SetupDeath(null, killedOnClient: true, noSFX: false);
+                        }
+                        catch
+                        {
+                            // death FX path can throw during teardown; state still applied below
+                        }
+                        bound.Agent.health = 0f;
+                    }
+                    else if (world.TryGet<Hp>(e, out var hp) && !float.IsNaN(hp.Cur) && hp.Cur != bound.AppliedHp)
+                    {
+                        bound.AppliedHp = hp.Cur;
+                        bound.Agent.health = hp.Cur;
+                    }
+                }
             });
 
             List<int> gone = null;

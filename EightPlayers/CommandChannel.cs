@@ -96,6 +96,11 @@ namespace EightPlayers
                         ? EcsNet.EcsNetManager.Instance.DebugDump()
                         : "no EcsNetManager");
                     break;
+                case "npcs":
+                    if (EcsNet.EcsNetManager.Instance != null)
+                        foreach (var line in EcsNet.EcsNetManager.Instance.DescribeNpcRegistry())
+                            Out(line);
+                    break;
                 case "agents":
                     foreach (var agent in GameStateApi.Agents())
                         Out("  " + GameStateApi.DescribeAgent(agent));

@@ -90,7 +90,19 @@ namespace EightPlayers.EcsNet
                 return;
             foreach (var lp in _locals)
                 if (ReferenceEquals(lp.Agent, agent))
+                {
                     lp.HpDirty = true;
+                    return;
+                }
+            if (_wasNpcAuthority)
+                _npcs.MarkNpcHealth(agent);
+        }
+
+        /// <summary>Called from the SetupDeath choke-point hook (EcsHooks).</summary>
+        public void OnAgentDeath(Agent agent)
+        {
+            if (agent != null && _wasNpcAuthority)
+                _npcs.MarkNpcDeath(agent);
         }
 
         private sealed class Ghost
@@ -405,6 +417,17 @@ namespace EightPlayers.EcsNet
         internal void SendPos(int entity, Vector2 pos) =>
             _client.Send(Protocol.Set(entity, Protocol.PosComponent(pos.x, pos.y)));
 
+        internal void SendHp(int entity, float cur, float max) =>
+            _client.Send(Protocol.Set(entity, Protocol.HpComponent(cur, max)));
+
+        internal void SendDead(int entity, float cur, float max)
+        {
+            var components = Protocol.HpComponent(cur, max);
+            components.Merge(Protocol.DeadComponent());
+            _client.Send(Protocol.Set(entity, components));
+            EightPlayersPlugin.Log.LogInfo($"ECSNET npc death published for entity {entity}");
+        }
+
         internal void SendDespawn(int entity) =>
             _client.Send(Protocol.Despawn(entity));
 
@@ -469,6 +492,8 @@ namespace EightPlayers.EcsNet
                 _world.Set(e, new LevelId { Seed = (int?)level["seed"] ?? 0, Num = (int?)level["num"] ?? 0 });
             if (components["npc"] is JObject npc)
                 _world.Set(e, new NpcTag { Index = (int?)npc["i"] ?? -1, Type = (string)npc["type"] });
+            if (components["dead"] is JObject)
+                _world.Set(e, new DeadTag { Value = true });
         }
 
         // ---- outgoing ----
@@ -721,6 +746,8 @@ namespace EightPlayers.EcsNet
                 default: return new Color(0.8f, 0.8f, 0.8f);
             }
         }
+
+        public IEnumerable<string> DescribeNpcRegistry() => _npcs.DescribeRegistry();
 
         /// <summary>Multi-line dump of the ECS session for the command channel (`ecs`).</summary>
         public string DebugDump()

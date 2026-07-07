@@ -23,6 +23,21 @@ namespace EightPlayers.EcsNet
         }
     }
 
+    [HarmonyPatch]
+    internal static class EcsDeathHook_Patch
+    {
+        private static MethodBase TargetMethod() =>
+            AccessTools.GetDeclaredMethods(typeof(StatusEffects))
+                .Where(m => m.Name == "SetupDeath")
+                .OrderByDescending(m => m.GetParameters().Length)
+                .First();
+
+        private static void Postfix(StatusEffects __instance)
+        {
+            EcsNetManager.Instance?.OnAgentDeath(__instance.agent);
+        }
+    }
+
     [HarmonyPatch(typeof(LoadLevel), "IncreaseLevel")]
     internal static class EcsLevelAdvanceHook_Patch
     {

@@ -45,6 +45,11 @@ namespace EightPlayers.EcsNet
         public string Type;
     }
 
+    public struct DeadTag
+    {
+        public bool Value;
+    }
+
     public sealed class EcsWorld
     {
         private interface IStore
