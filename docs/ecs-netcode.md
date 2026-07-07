@@ -59,11 +59,13 @@ Ported so far:
 ## Phase plan
 
 1. **Presence (done)** — players see each other as ghosts across the internet.
-2. **Real remote agents** — replace ghost markers with spawned `Agent` objects
-   (SetupAgent path, no brain/input), driven by `pos` + facing/anim components.
-   Level identity component so only same-level players render.
-3. **Deterministic world join** — sync level seed + elevator transitions so all
-   clients generate the same map and travel together.
+2. **Real remote agents (done)** — remote same-world players are real spawned
+   `Agent`s (brain disabled), driven by `pos`, named via `player.name`,
+   char type via `player.char`. Verified: teleporting one player moved the
+   other instance's avatar within ~0.1 units.
+3. **Deterministic world join (seed done, transitions pending)** — rooms carry
+   a first-write-wins world seed all clients adopt; level-transition sync
+   (travel together on elevator, `level/advance` trace hook in place) is next.
 4. **Interactions** — component-ize the high-value verbs: damage, death, item
    pickup/drop, door/object state. Server validates writes per system
    (e.g. only the entity in range may open a door).
