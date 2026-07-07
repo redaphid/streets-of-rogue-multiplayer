@@ -51,6 +51,10 @@ namespace EightPlayers.EcsNet
         private readonly List<Agent> _byIndex = new List<Agent>();
         private readonly List<Agent> _dynAgents = new List<Agent>();
         private readonly Dictionary<Agent, int> _indexByAgent = new Dictionary<Agent, int>();
+        private readonly Dictionary<int, float> _mirrorRetryAt = new Dictionary<int, float>();   // entity ->
+        private readonly Dictionary<int, int> _mirrorAttempts = new Dictionary<int, int>();      // entity ->
+        private const int MaxMirrorAttempts = 5;
+        private const float MirrorRetrySeconds = 10f;
         private JArray _batch;
         private readonly Dictionary<int, Published> _published = new Dictionary<int, Published>(); // npc idx ->
         private readonly Dictionary<int, Bound> _bound = new Dictionary<int, Bound>();             // entity ->
@@ -63,6 +67,8 @@ namespace EightPlayers.EcsNet
             _dynAgents.Clear();
             _indexByAgent.Clear();
             _published.Clear();
+            _mirrorRetryAt.Clear();
+            _mirrorAttempts.Clear();
             UnbindAll();
         }
 
@@ -72,6 +78,8 @@ namespace EightPlayers.EcsNet
             _dynAgents.Clear();
             _indexByAgent.Clear();
             _published.Clear();
+            _mirrorRetryAt.Clear();
+            _mirrorAttempts.Clear();
             UnbindAll();
         }
 
@@ -252,8 +260,17 @@ namespace EightPlayers.EcsNet
                     if (tag.Index >= DynBase)
                     {
                         // Dynamic NPC: no local twin exists — spawn a mirror.
+                        // Bounded retries: spawns into not-yet-streamed chunks
+                        // can die instantly, so back off instead of thrashing.
                         if (world.TryGet<DeadTag>(e, out var alreadyDead) && alreadyDead.Value)
                             return;
+                        _mirrorAttempts.TryGetValue(e, out var attempts);
+                        if (attempts >= MaxMirrorAttempts)
+                            return;
+                        if (_mirrorRetryAt.TryGetValue(e, out var retryAt) && Time.unscaledTime < retryAt)
+                            return;
+                        _mirrorAttempts[e] = attempts + 1;
+                        _mirrorRetryAt[e] = Time.unscaledTime + MirrorRetrySeconds;
                         try
                         {
                             BypassSuppression = true;
@@ -263,7 +280,7 @@ namespace EightPlayers.EcsNet
                         }
                         catch
                         {
-                            return; // level not ready; retry next tick
+                            return; // level not ready; retry after cooldown
                         }
                         finally
                         {
@@ -271,7 +288,14 @@ namespace EightPlayers.EcsNet
                         }
                         if (agent == null)
                             return;
-                        EightPlayersPlugin.Log.LogInfo($"ECSNET dynamic npc mirror spawned ({tag.Type}, entity {e})");
+                        if (agent.dead)
+                        {
+                            EightPlayersPlugin.Log.LogWarning(
+                                $"ECSNET dynamic mirror for entity {e} ({tag.Type}) spawned dead at ({pos.X:0.#},{pos.Y:0.#}) — attempt {attempts + 1}/{MaxMirrorAttempts}");
+                            return;
+                        }
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET dynamic npc mirror spawned ({tag.Type}, entity {e}, attempt {attempts + 1})");
                     }
                     else
                     {
@@ -286,6 +310,16 @@ namespace EightPlayers.EcsNet
                     _bound[e] = bound;
                 }
                 bound.Target = new Vector2(pos.X, pos.Y);
+
+                // A mirror that died locally (hazard/culling) without an
+                // authority death: unbind so the bounded retry logic can
+                // replace it, and log the event for diagnosis.
+                if (tag.Index >= DynBase && bound.Agent != null && bound.Agent.dead && !bound.AppliedDead)
+                {
+                    EightPlayersPlugin.Log.LogWarning($"ECSNET dynamic mirror for entity {e} died locally; will re-mirror");
+                    Unbind(e);
+                    return;
+                }
 
                 // Mirror authority combat state through vanilla-adjacent paths.
                 if (bound.Agent != null && !bound.Agent.dead)

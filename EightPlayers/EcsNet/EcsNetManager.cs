@@ -446,6 +446,12 @@ namespace EightPlayers.EcsNet
             var gc = GameController.gameController;
             if (gc == null || agent == null || agent.isPlayer != 0)
                 return;
+            // Pseudo-agents (ObjectAgent = object-interaction helper, dummies)
+            // are transient implementation details, not characters — never
+            // sync them. Filter runs identically everywhere, so the
+            // spawn-index registries stay aligned.
+            if (agent.isDummy || agent.agentName == "ObjectAgent")
+                return;
             if (!gc.loadComplete)
             {
                 _npcs.Register(agent);
