@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace EightPlayers.EcsNet
@@ -39,6 +40,7 @@ namespace EightPlayers.EcsNet
 
         private readonly List<Agent> _byIndex = new List<Agent>();
         private readonly Dictionary<Agent, int> _indexByAgent = new Dictionary<Agent, int>();
+        private JArray _batch;
         private readonly Dictionary<int, Published> _published = new Dictionary<int, Published>(); // npc idx ->
         private readonly Dictionary<int, Bound> _bound = new Dictionary<int, Bound>();             // entity ->
         private float _nextPublishAt;
@@ -176,16 +178,26 @@ namespace EightPlayers.EcsNet
                 }
                 if (pub.Entity < 0)
                     continue;
+                JObject components = null;
                 if ((p - pub.LastSent).sqrMagnitude > MinMoveSqr)
                 {
-                    net.SendPos(pub.Entity, p);
+                    components = Protocol.PosComponent(p.x, p.y);
                     pub.LastSent = p;
                 }
                 if (pub.HpDirty)
                 {
-                    net.SendHp(pub.Entity, agent.health, agent.healthMax);
+                    var hp = Protocol.HpComponent(agent.health, agent.healthMax);
+                    if (components == null) components = hp;
+                    else components.Merge(hp);
                     pub.HpDirty = false;
                 }
+                if (components != null)
+                    (_batch = _batch ?? new JArray()).Add(Protocol.BatchUpdate(pub.Entity, components));
+            }
+            if (_batch != null && _batch.Count > 0)
+            {
+                net.SendBatch(_batch);
+                _batch = null;
             }
         }
 

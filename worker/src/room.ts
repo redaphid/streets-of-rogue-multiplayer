@@ -122,6 +122,19 @@ export class GameRoom extends DurableObject {
         this.broadcast({ t: 'set', e: msg.e, components: msg.components }, ws)
         return
       }
+      case 'setm': {
+        if (!att.helloed || !Array.isArray(msg.updates)) return
+        const applied: { e: number; components: Components }[] = []
+        for (const update of msg.updates.slice(0, 256)) {
+          if (!update || typeof update.e !== 'number' || !update.components) continue
+          if (!this.world.set(att.id, update.e, update.components)) continue
+          applied.push({ e: update.e, components: update.components })
+          const durable = RoomWorld.persistable(update.components)
+          if (Object.keys(durable).length > 0) await this.persistEntity(update.e)
+        }
+        if (applied.length > 0) this.broadcast({ t: 'setm', updates: applied }, ws)
+        return
+      }
       case 'despawn': {
         if (!att.helloed) return
         if (!this.world.despawn(att.id, msg.e)) return

@@ -114,6 +114,26 @@ try {
   erin.ws.close()
   dave.ws.close()
 
+  // --- batched updates: one frame, per-update ownership, foreign dropped ---
+  alice.ws.send(JSON.stringify({ t: 'spawn', tmp: 90, components: { pos: { x: 0, y: 0 } } }))
+  const aliceSpawn2 = await recv(alice, (m) => m.t === 'spawn' && m.tmp === 90, 'alice second entity')
+  carol.ws.send(JSON.stringify({ t: 'spawn', tmp: 91, components: { pos: { x: 0, y: 0 } } }))
+  const carolSpawn = await recv(carol, (m) => m.t === 'spawn' && m.tmp === 91, 'carol entity')
+  await recv(carol, (m) => m.t === 'spawn' && m.e === aliceSpawn2.e, 'carol sees alice entity 2')
+  await recv(alice, (m) => m.t === 'spawn' && m.e === carolSpawn.e, 'alice sees carol entity')
+  alice.ws.send(JSON.stringify({
+    t: 'setm',
+    updates: [
+      { e: aliceSpawn2.e, components: { pos: { x: 5, y: 5 } } },
+      { e: aliceEntity, components: { pos: { x: 6, y: 6 } } },
+      { e: carolSpawn.e, components: { pos: { x: 66, y: 66 } } }, // foreign: must be dropped
+    ],
+  }))
+  const batch = await recv(carol, (m) => m.t === 'setm', 'carol receives batch')
+  ok(batch.updates.length === 2, 'batch carries only owned updates')
+  ok(!batch.updates.some((u) => u.e === carolSpawn.e), 'foreign update dropped from batch')
+  ok(batch.updates.find((u) => u.e === aliceSpawn2.e)?.components.pos.x === 5, 'batch update applied')
+
   // --- transient events: relayed to peers with sender id, not echoed back ---
   alice.ws.send(JSON.stringify({ t: 'event', kind: 'door-open', data: { door: 123 } }))
   const evt = await recv(carol, (m) => m.t === 'event', 'carol receives event')

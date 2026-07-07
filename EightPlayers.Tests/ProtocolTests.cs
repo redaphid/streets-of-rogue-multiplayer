@@ -76,6 +76,27 @@ namespace EightPlayers.Tests
         }
 
         [Fact]
+        public void SetBatchShapeAndParse()
+        {
+            var updates = new JArray
+            {
+                Protocol.BatchUpdate(3, Protocol.PosComponent(1f, 2f)),
+                Protocol.BatchUpdate(4, Protocol.HpComponent(10f, 20f)),
+            };
+            var raw = Protocol.SetBatch(updates);
+            var jo = JObject.Parse(raw);
+            Assert.Equal("setm", (string)jo["t"]);
+            Assert.Equal(2, ((JArray)jo["updates"]).Count);
+            Assert.Equal(3, (int)jo["updates"][0]["e"]);
+            Assert.Equal(1f, (float)jo["updates"][0]["components"]["pos"]["x"]);
+
+            var msg = ServerMsg.Parse(raw);
+            Assert.Equal("setm", msg.T);
+            Assert.Equal(2, msg.Updates.Count);
+            Assert.Equal(4, (int)msg.Updates[1]["e"]);
+        }
+
+        [Fact]
         public void ParsesWelcome()
         {
             var msg = ServerMsg.Parse(

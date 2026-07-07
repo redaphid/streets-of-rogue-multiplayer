@@ -29,6 +29,12 @@ export interface SetReq {
   components: Components
 }
 
+/** Batched component updates — one frame instead of N (NPC traffic). */
+export interface SetBatchReq {
+  t: 'setm'
+  updates: { e: number; components: Components }[]
+}
+
 export interface DespawnReq {
   t: 'despawn'
   e: number
@@ -60,7 +66,7 @@ export interface EventReq {
   data?: unknown
 }
 
-export type ClientMsg = HelloMsg | SpawnReq | SetReq | DespawnReq | PingMsg | WorldReq | EventReq
+export type ClientMsg = HelloMsg | SpawnReq | SetReq | SetBatchReq | DespawnReq | PingMsg | WorldReq | EventReq
 
 // ---- server -> client ----
 
@@ -102,6 +108,11 @@ export interface SetEvt {
   components: Components
 }
 
+export interface SetBatchEvt {
+  t: 'setm'
+  updates: { e: number; components: Components }[]
+}
+
 export interface DespawnEvt {
   t: 'despawn'
   e: number
@@ -135,6 +146,7 @@ export type ServerMsg =
   | WelcomeMsg
   | SpawnEvt
   | SetEvt
+  | SetBatchEvt
   | DespawnEvt
   | PeerEvt
   | PongMsg

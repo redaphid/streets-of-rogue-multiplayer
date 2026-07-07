@@ -19,6 +19,12 @@ namespace EightPlayers.EcsNet
         public static string Set(int entity, JObject components) =>
             new JObject { ["t"] = "set", ["e"] = entity, ["components"] = components }.ToString(Newtonsoft.Json.Formatting.None);
 
+        public static JObject BatchUpdate(int entity, JObject components) =>
+            new JObject { ["e"] = entity, ["components"] = components };
+
+        public static string SetBatch(JArray updates) =>
+            new JObject { ["t"] = "setm", ["updates"] = updates }.ToString(Newtonsoft.Json.Formatting.None);
+
         public static string Despawn(int entity) =>
             new JObject { ["t"] = "despawn", ["e"] = entity }.ToString(Newtonsoft.Json.Formatting.None);
 
@@ -83,6 +89,7 @@ namespace EightPlayers.EcsNet
         public string Kind;       // event
         public JObject EventData; // event
         public int From;          // event
+        public JArray Updates;    // setm
 
         public static ServerMsg Parse(string raw)
         {
@@ -119,6 +126,9 @@ namespace EightPlayers.EcsNet
                 case "set":
                     msg.Entity = (int)jo["e"];
                     msg.Components = (JObject)jo["components"];
+                    break;
+                case "setm":
+                    msg.Updates = (JArray)jo["updates"];
                     break;
                 case "despawn":
                     msg.Entity = (int)jo["e"];

@@ -297,6 +297,12 @@ namespace EightPlayers.EcsNet
                     ApplyComponents(msg.Entity, msg.Components);
                     break;
 
+                case "setm":
+                    if (msg.Updates != null)
+                        foreach (var update in msg.Updates)
+                            ApplyComponents((int)update["e"], update["components"] as JObject);
+                    break;
+
                 case "despawn":
                     _world.Despawn(msg.Entity);
                     _avatars.RemoveEntity(msg.Entity);
@@ -419,6 +425,9 @@ namespace EightPlayers.EcsNet
 
         internal void SendHp(int entity, float cur, float max) =>
             _client.Send(Protocol.Set(entity, Protocol.HpComponent(cur, max)));
+
+        internal void SendBatch(JArray updates) =>
+            _client.Send(Protocol.SetBatch(updates));
 
         internal void SendDead(int entity, float cur, float max)
         {
