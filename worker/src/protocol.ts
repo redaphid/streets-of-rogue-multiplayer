@@ -39,7 +39,13 @@ export interface PingMsg {
   ts: number
 }
 
-export type ClientMsg = HelloMsg | SpawnReq | SetReq | DespawnReq | PingMsg
+/** Claim the room's shared world seed. First write wins; later writes are ignored. */
+export interface WorldReq {
+  t: 'world'
+  seed: string
+}
+
+export type ClientMsg = HelloMsg | SpawnReq | SetReq | DespawnReq | PingMsg | WorldReq
 
 // ---- server -> client ----
 
@@ -56,6 +62,13 @@ export interface WelcomeMsg {
   room: string
   peers: { id: number; name: string }[]
   snapshot: EntityRecord[]
+  /** null until some client claims the room's world seed */
+  world: { seed: string } | null
+}
+
+export interface WorldEvt {
+  t: 'world'
+  seed: string
 }
 
 export interface SpawnEvt {
@@ -95,4 +108,4 @@ export interface ErrorMsg {
   message: string
 }
 
-export type ServerMsg = WelcomeMsg | SpawnEvt | SetEvt | DespawnEvt | PeerEvt | PongMsg | ErrorMsg
+export type ServerMsg = WelcomeMsg | SpawnEvt | SetEvt | DespawnEvt | PeerEvt | PongMsg | ErrorMsg | WorldEvt

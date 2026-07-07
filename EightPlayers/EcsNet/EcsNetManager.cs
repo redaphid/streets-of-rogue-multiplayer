@@ -30,6 +30,15 @@ namespace EightPlayers.EcsNet
 
         public static EcsNetManager Instance { get; private set; }
 
+        /// <summary>
+        /// Room-wide map seed adopted from the Durable Object. Read by
+        /// ForceSeed_Patch at level load so every game in the room generates
+        /// the same world. Null until the room's seed is known.
+        /// </summary>
+        public static string AdoptedSeed { get; private set; }
+
+        private bool _worldClaimSent;
+
         private sealed class LocalPlayer
         {
             public Agent Agent;
@@ -117,6 +126,8 @@ namespace EightPlayers.EcsNet
         {
             _welcomed = false;
             _myClientId = -1;
+            _worldClaimSent = false;
+            AdoptedSeed = null;
             _world.Clear();
             foreach (var ghost in _ghosts.Values)
                 if (ghost.Root != null) Destroy(ghost.Root);
@@ -168,8 +179,18 @@ namespace EightPlayers.EcsNet
                         _world.Set(e, new Owned { ClientId = (int)rec["owner"] });
                         ApplyComponents(e, (JObject)rec["components"]);
                     }
+                    if (!string.IsNullOrEmpty(msg.WorldSeed))
+                    {
+                        AdoptedSeed = msg.WorldSeed;
+                        EightPlayersPlugin.Log.LogInfo($"ECSNET room world seed: {msg.WorldSeed}");
+                    }
                     EightPlayersPlugin.Log.LogInfo(
                         $"ECSNET joined room {msg.Room} as client {msg.You} ({msg.Snapshot.Count} entities, {msg.Peers.Count} peers)");
+                    break;
+
+                case "world":
+                    AdoptedSeed = msg.WorldSeed;
+                    EightPlayersPlugin.Log.LogInfo($"ECSNET room world seed: {msg.WorldSeed}");
                     break;
 
                 case "spawn":
@@ -227,6 +248,7 @@ namespace EightPlayers.EcsNet
         private void PublishLocalPlayers()
         {
             SyncLocalAgentList();
+            ClaimWorldSeedIfFirst();
 
             for (int i = 0; i < _locals.Count; i++)
             {
@@ -267,6 +289,23 @@ namespace EightPlayers.EcsNet
                     }
                 }
             }
+        }
+
+        // First client to reach a generated level claims the room's world
+        // seed (the DO enforces first-write-wins and reminds losers of the
+        // real seed). Everyone else's next game start adopts it via
+        // ForceSeed_Patch.
+        private void ClaimWorldSeedIfFirst()
+        {
+            if (_worldClaimSent || AdoptedSeed != null)
+                return;
+            var gc = GameController.gameController;
+            var letter = gc != null && gc.loadLevel != null ? gc.loadLevel.randomSeedLetter : null;
+            if (string.IsNullOrEmpty(letter))
+                return;
+            _client.Send(Protocol.World(letter));
+            _worldClaimSent = true;
+            EightPlayersPlugin.Log.LogInfo($"ECSNET claiming room world seed: {letter}");
         }
 
         private void SyncLocalAgentList()
@@ -409,7 +448,15 @@ namespace EightPlayers.EcsNet
             var status = _client.State == NetState.Connected
                 ? (_welcomed ? $"room {RoomCode} · client {_myClientId} · {_world.Count} entities" : "handshaking")
                 : _client.State.ToString().ToLowerInvariant();
-            GUI.Label(new Rect(8, 8, 640, 22), $"ECSNET {status}");
+            if (AdoptedSeed != null)
+            {
+                var gc = GameController.gameController;
+                var localLetter = gc != null && gc.loadLevel != null ? gc.loadLevel.randomSeedLetter : "";
+                status += localLetter == AdoptedSeed
+                    ? $" · world {AdoptedSeed}"
+                    : $" · room world is {AdoptedSeed} — start a NEW game to sync maps";
+            }
+            GUI.Label(new Rect(8, 8, 960, 22), $"ECSNET {status}");
         }
     }
 }

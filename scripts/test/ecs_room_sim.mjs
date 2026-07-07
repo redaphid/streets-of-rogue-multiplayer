@@ -87,6 +87,19 @@ try {
   const carol = await connect('carol')
   const carolWelcome = await recv(carol, (m) => m.t === 'welcome', 'carol welcome')
   ok(carolWelcome.snapshot.length === 1, 'carol snapshot back to 1 entity')
+  ok(carolWelcome.world === null, 'world seed unset before anyone claims it')
+
+  // --- world seed: first write wins, broadcast, appears in welcome ---
+  alice.ws.send(JSON.stringify({ t: 'world', seed: 'seed-alpha' }))
+  const worldAtCarol = await recv(carol, (m) => m.t === 'world', 'carol receives world seed')
+  ok(worldAtCarol.seed === 'seed-alpha', 'world seed broadcast to peers')
+  carol.ws.send(JSON.stringify({ t: 'world', seed: 'seed-beta' }))
+  const reminded = await recv(carol, (m) => m.t === 'world', 'carol reminded of existing seed')
+  ok(reminded.seed === 'seed-alpha', 'second world write loses (first wins)')
+  const dave = await connect('dave')
+  const daveWelcome = await recv(dave, (m) => m.t === 'welcome', 'dave welcome')
+  ok(daveWelcome.world?.seed === 'seed-alpha', 'late joiner gets world seed in welcome')
+  dave.ws.close()
 
   alice.ws.close()
   carol.ws.close()

@@ -49,6 +49,12 @@ Ported so far:
 - **Health**: `StatusEffects.ChangeHealth` hook (EcsHooks) marks the local
   player dirty; next publish tick sends an `hp` component; peers render it
   on ghost labels. First event-driven (non-polled) system.
+- **World identity**: rooms carry a first-write-wins `world.seed` (claimed by
+  the first client to reach a level, released when the room empties). Other
+  clients adopt it via the game's user-set-seed path at their next game
+  start, so everyone generates the same map. Player entities carry a
+  `level {seed, num}` component; ghosts only render for same-world players.
+  `SOR_SEED` env overrides everything (test determinism control).
 
 ## Phase plan
 

@@ -183,14 +183,15 @@ namespace EightPlayers
     {
         private static void Prefix(LoadLevel __instance)
         {
-            var seed = System.Environment.GetEnvironmentVariable("SOR_SEED");
+            var seed = System.Environment.GetEnvironmentVariable("SOR_SEED")
+                       ?? EcsNet.EcsNetManager.AdoptedSeed;
             if (string.IsNullOrEmpty(seed))
                 return;
             var gc = GameController.gameController;
             if (gc == null || gc.sessionDataBig == null)
                 return;
             gc.sessionDataBig.userSetSeed = seed;
-            EightPlayersPlugin.Log.LogInfo($"SOR_SEED forcing map seed '{seed}' at level load");
+            EightPlayersPlugin.Log.LogInfo($"Forcing map seed '{seed}' at level load (env or room world)");
         }
     }
 

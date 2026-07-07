@@ -27,6 +27,7 @@ export class GameRoom extends DurableObject {
   private world = new RoomWorld()
   private roomName = ''
   private nextClient = 1
+  private worldSeed: string | null = null
 
   constructor(ctx: DurableObjectState, env: unknown) {
     super(ctx, env as never)
@@ -35,6 +36,7 @@ export class GameRoom extends DurableObject {
       const meta = await ctx.storage.get<Meta>('meta')
       if (meta) this.nextClient = meta.nextClient
       this.roomName = (await ctx.storage.get<string>('room')) ?? ''
+      this.worldSeed = (await ctx.storage.get<string>('worldSeed')) ?? null
       const stored = await ctx.storage.list<StoredEntity>({ prefix: 'e:' })
       for (const [key, ent] of stored) {
         this.world.restore(Number(key.slice(2)), ent.owner, ent.components)
@@ -94,6 +96,7 @@ export class GameRoom extends DurableObject {
           room: this.roomName,
           peers: this.peers(att.id),
           snapshot: this.world.snapshot(),
+          world: this.worldSeed !== null ? { seed: this.worldSeed } : null,
         })
         this.broadcast({ t: 'peer', id: att.id, name: att.name, joined: true }, ws)
         return
@@ -124,6 +127,20 @@ export class GameRoom extends DurableObject {
         this.broadcast({ t: 'despawn', e: msg.e }, ws)
         return
       }
+      case 'world': {
+        if (!att.helloed) return
+        const seed = String(msg.seed ?? '').slice(0, 64)
+        if (!seed) return
+        if (this.worldSeed !== null) {
+          // First write wins; remind the sender what the room's seed is.
+          this.send(ws, { t: 'world', seed: this.worldSeed })
+          return
+        }
+        this.worldSeed = seed
+        await this.ctx.storage.put('worldSeed', seed)
+        this.broadcast({ t: 'world', seed }, ws)
+        return
+      }
       case 'ping':
         this.send(ws, { t: 'pong', ts: msg.ts })
         return
@@ -147,6 +164,13 @@ export class GameRoom extends DurableObject {
       this.broadcast({ t: 'despawn', e }, ws)
     }
     if (att.helloed) this.broadcast({ t: 'peer', id: att.id, name: att.name, joined: false }, ws)
+
+    // Last player out: release the world seed so the room can host a fresh game.
+    const remaining = this.ctx.getWebSockets().filter((other) => other !== ws)
+    if (remaining.length === 0 && this.worldSeed !== null) {
+      this.worldSeed = null
+      await this.ctx.storage.delete('worldSeed')
+    }
   }
 
   private async persistEntity(e: number): Promise<void> {
