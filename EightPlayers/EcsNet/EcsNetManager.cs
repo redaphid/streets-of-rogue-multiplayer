@@ -144,6 +144,15 @@ namespace EightPlayers.EcsNet
 
         private void Update()
         {
+            if (Input.GetKeyDown(KeyCode.F9))
+            {
+                _showRoomUi = !_showRoomUi;
+                if (_showRoomUi)
+                {
+                    _roomUiCode = RoomCode;
+                    _roomUiName = PlayerName;
+                }
+            }
             if (!Enabled)
             {
                 if (_client != null) TearDown();
@@ -854,10 +863,71 @@ namespace EightPlayers.EcsNet
             return sb.ToString().TrimEnd();
         }
 
+        /// <summary>Join a room by code (UI button / `room` command). Persists to config.</summary>
+        public void JoinRoom(string code)
+        {
+            code = (code ?? "").Trim().ToUpperInvariant();
+            if (code.Length == 0)
+                return;
+            EightPlayersPlugin.EcsRoom.Value = code;
+            _nextConnectAt = 0f; // connect on the next frame
+            EightPlayersPlugin.Log.LogInfo($"ECSNET joining room {code}");
+        }
+
+        /// <summary>Leave the current room (UI button / `leave` command).</summary>
+        public void LeaveRoom()
+        {
+            EightPlayersPlugin.Log.LogInfo("ECSNET leaving room");
+            EightPlayersPlugin.EcsRoom.Value = "";
+        }
+
+        private bool _showRoomUi;
+        private string _roomUiCode = "";
+        private string _roomUiName = "";
+        private Rect _roomUiRect = new Rect(60, 60, 340, 170);
+
+        private void RoomWindow(int id)
+        {
+            GUILayout.Label(Enabled
+                ? $"In room {RoomCode} ({(_client?.State == NetState.Connected ? "connected" : "connecting")})"
+                : "Not in a room");
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Room", GUILayout.Width(50));
+            _roomUiCode = GUILayout.TextField(_roomUiCode, 32);
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Name", GUILayout.Width(50));
+            _roomUiName = GUILayout.TextField(_roomUiName, 32);
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Join") && _roomUiCode.Trim().Length > 0)
+            {
+                if (_roomUiName.Trim().Length > 0)
+                    EightPlayersPlugin.EcsPlayerName.Value = _roomUiName.Trim();
+                JoinRoom(_roomUiCode);
+                _showRoomUi = false;
+            }
+            if (GUILayout.Button("Leave"))
+                LeaveRoom();
+            if (GUILayout.Button("Close"))
+                _showRoomUi = false;
+            GUILayout.EndHorizontal();
+            GUILayout.Label("Everyone in a room shares one world (start a NEW game after joining).");
+            GUI.DragWindow();
+        }
+
         private void OnGUI()
         {
-            if (!Enabled || !EightPlayersPlugin.EcsShowHud.Value || _client == null)
+            if (_showRoomUi)
+                _roomUiRect = GUI.Window(0xEC5, _roomUiRect, RoomWindow, "Co-op room (F9)");
+            if (!EightPlayersPlugin.EcsShowHud.Value)
                 return;
+            if (!Enabled || _client == null)
+            {
+                if (!_showRoomUi)
+                    GUI.Label(new Rect(8, 8, 640, 22), "ECSNET off — press F9 to join a co-op room");
+                return;
+            }
             var status = _client.State == NetState.Connected
                 ? (_welcomed ? $"room {RoomCode} · client {_myClientId} · {_world.Count} entities" : "handshaking")
                 : _client.State.ToString().ToLowerInvariant();

@@ -96,6 +96,14 @@ namespace EightPlayers
                         ? EcsNet.EcsNetManager.Instance.DebugDump()
                         : "no EcsNetManager");
                     break;
+                case "room":
+                    EcsNet.EcsNetManager.Instance?.JoinRoom(parts[1]);
+                    Out($"joining room {parts[1].ToUpperInvariant()}");
+                    break;
+                case "leave":
+                    EcsNet.EcsNetManager.Instance?.LeaveRoom();
+                    Out("left room");
+                    break;
                 case "npcs":
                     if (EcsNet.EcsNetManager.Instance != null)
                         foreach (var line in EcsNet.EcsNetManager.Instance.DescribeNpcRegistry())
