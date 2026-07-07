@@ -84,13 +84,17 @@ AUID=$(player_uid ecs0); BUID=$(player_uid ecs1)
 [ -n "$AUID" ] && [ -n "$BUID" ] && ok "player uids resolved (A=$AUID B=$BUID)" || fail "player uids resolved"
 
 echo "[3/8] teleport follow"
-cmd ecs0 "tp $AUID 30 60" >/dev/null; sleep 6
-BVIEW=$(cmd ecs1 ecs | grep "PlayerA" | head -1)
-echo "$BVIEW" | grep -q "pos=(30" && ok "A's entity at (30,~60) in B's world" || fail "A's entity at (30,~60) in B's world: $BVIEW"
+# Teleport A to B's player position — guaranteed walkable in the shared
+# world (fixed coordinates land inside walls on some seeds).
+BPPOS=$(cmd ecs1 state | grep "player:" | grep -o 'pos=([^)]*)' | tr -d 'pos=()')
+TX=$(echo "$BPPOS" | cut -d, -f1); TY=$(echo "$BPPOS" | cut -d, -f2)
+cmd ecs0 "tp $AUID $TX $TY" >/dev/null; sleep 6
+BVIEW=$(cmd ecs1 ecs | grep "E2EA" | head -1)
+echo "$BVIEW" | grep -q "pos=(${TX%%.*}" && ok "A's entity followed to B's position (~$TX,$TY)" || fail "A's entity followed to (~$TX,$TY): $BVIEW"
 
 echo "[4/8] health sync"
 cmd ecs0 "hp $AUID -25" >/dev/null; sleep 4
-cmd ecs1 ecs | grep "PlayerA" | grep -q "hp=75" && ok "A's hp 75 visible on B" || fail "A's hp 75 visible on B"
+cmd ecs1 ecs | grep "E2EA" | grep -q "hp=75" && ok "A's hp 75 visible on B" || fail "A's hp 75 visible on B"
 
 echo "[5/8] door sync (position addressed)"
 DOOR=$(cmd ecs0 doors | grep "door uid=" | head -1)
@@ -119,9 +123,15 @@ sleep 5
 cmd ecs1 npcs | grep "npc\[$NIDX\]" | grep -q "dead=True" && ok "B's npc[$NIDX] twin died" || fail "B's npc twin died"
 
 echo "[8/8] travel together"
+AVATARS_BEFORE=$(grep -ac "avatar spawned" "$(log ecs1)" || true)
 cmd ecs0 nextlevel >/dev/null
 waitlog ecs1 "following room: level 1 -> 2" 60 && ok "B followed to level 2" || fail "B followed to level 2"
-waitlog ecs1 "avatar spawned.*PlayerA" 240 && ok "avatars respawned on level 2" || fail "avatars respawned on level 2"
+RESPAWNED=1
+for _ in $(seq 1 240); do
+  [ "$(grep -ac 'avatar spawned' "$(log ecs1)" || true)" -gt "$AVATARS_BEFORE" ] && RESPAWNED=0 && break
+  sleep 1
+done
+[ "$RESPAWNED" -eq 0 ] && ok "avatars respawned on level 2" || fail "avatars respawned on level 2"
 
 echo
 echo "RESULT: $PASS passed, $FAIL failed"
