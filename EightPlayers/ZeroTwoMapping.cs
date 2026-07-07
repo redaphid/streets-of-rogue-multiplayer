@@ -24,25 +24,36 @@ namespace EightPlayers
 
         // action name -> candidate element names (first found wins).
         // Axis actions bind each direction as a button-to-axis contribution.
-        private static readonly (string action, Pole pole, string[] elements)[] Layout =
+        private static (string action, Pole pole, string[] elements)[] GetLayout()
         {
-            ("MoveXJ",          Pole.Positive, new[] { "D-Pad Right", "Hat Right", "DPad Right" }),
-            ("MoveXJ",          Pole.Negative, new[] { "D-Pad Left", "Hat Left", "DPad Left" }),
-            ("MoveYJ",          Pole.Positive, new[] { "D-Pad Up", "Hat Up", "DPad Up" }),
-            ("MoveYJ",          Pole.Negative, new[] { "D-Pad Down", "Hat Down", "DPad Down" }),
-            ("MenuRightJ",      Pole.Positive, new[] { "D-Pad Right", "Hat Right", "DPad Right" }),
-            ("MenuLeftJ",       Pole.Positive, new[] { "D-Pad Left", "Hat Left", "DPad Left" }),
-            ("MenuUpJ",         Pole.Positive, new[] { "D-Pad Up", "Hat Up", "DPad Up" }),
-            ("MenuDownJ",       Pole.Positive, new[] { "D-Pad Down", "Hat Down", "DPad Down" }),
-            ("AttackJ",         Pole.Positive, new[] { "X", "Button 3", "West" }),
-            ("InteractJ",       Pole.Positive, new[] { "A", "Button 0", "South" }),
-            ("CancelJ",         Pole.Positive, new[] { "B", "Button 1", "East" }),
-            ("SpecialAbilityJ", Pole.Positive, new[] { "Y", "Button 4", "North" }),
-            ("InventoryJ",      Pole.Positive, new[] { "Left Shoulder", "L", "L1", "Button 6" }),
-            ("SelectNextJ",     Pole.Positive, new[] { "Right Shoulder", "R", "R1", "Button 7" }),
-            ("UseHealthJ",      Pole.Positive, new[] { "View", "Back", "Select", "Button 10" }),
-            ("MenuJJ",          Pole.Positive, new[] { "Menu", "Start", "Button 11" }),
-        };
+            // The Zero 2's printed labels are Nintendo layout (A right, B bottom,
+            // X top, Y left) while in XInput mode it reports Xbox POSITIONS.
+            // Bind by printed label so "press A" means the button that says A:
+            //   printed A = reported B, printed B = reported A,
+            //   printed X = reported Y, printed Y = reported X.
+            bool n = EightPlayersPlugin.ZeroTwoNintendoLabels.Value;
+            string printedA = n ? "B" : "A", printedB = n ? "A" : "B";
+            string printedX = n ? "Y" : "X", printedY = n ? "X" : "Y";
+            return new[]
+            {
+                ("MoveXJ",          Pole.Positive, new[] { "D-Pad Right", "Hat Right", "DPad Right" }),
+                ("MoveXJ",          Pole.Negative, new[] { "D-Pad Left", "Hat Left", "DPad Left" }),
+                ("MoveYJ",          Pole.Positive, new[] { "D-Pad Up", "Hat Up", "DPad Up" }),
+                ("MoveYJ",          Pole.Negative, new[] { "D-Pad Down", "Hat Down", "DPad Down" }),
+                ("MenuRightJ",      Pole.Positive, new[] { "D-Pad Right", "Hat Right", "DPad Right" }),
+                ("MenuLeftJ",       Pole.Positive, new[] { "D-Pad Left", "Hat Left", "DPad Left" }),
+                ("MenuUpJ",         Pole.Positive, new[] { "D-Pad Up", "Hat Up", "DPad Up" }),
+                ("MenuDownJ",       Pole.Positive, new[] { "D-Pad Down", "Hat Down", "DPad Down" }),
+                ("AttackJ",         Pole.Positive, new[] { printedX }),
+                ("InteractJ",       Pole.Positive, new[] { printedA }),
+                ("CancelJ",         Pole.Positive, new[] { printedB }),
+                ("SpecialAbilityJ", Pole.Positive, new[] { printedY }),
+                ("InventoryJ",      Pole.Positive, new[] { "Left Shoulder", "L", "L1" }),
+                ("SelectNextJ",     Pole.Positive, new[] { "Right Shoulder", "R", "R1" }),
+                ("UseHealthJ",      Pole.Positive, new[] { "View", "Back", "Select" }),
+                ("MenuJJ",          Pole.Positive, new[] { "Menu", "Start" }),
+            };
+        }
 
         internal static bool IsZeroTwo(Joystick joystick)
         {
@@ -64,6 +75,40 @@ namespace EightPlayers
                 return;
             nextScan = UnityEngine.Time.unscaledTime + 3f;
             Apply();
+        }
+
+        // Live-debug hook: wipe our bindings and reinstall the layout now.
+        internal static void ForceRemap()
+        {
+            try
+            {
+                if (!ReInput.isReady)
+                    return;
+                foreach (var joystick in ReInput.controllers.Joysticks)
+                {
+                    if (!IsZeroTwo(joystick))
+                        continue;
+                    foreach (var player in ReInput.players.AllPlayers)
+                    {
+                        if (!player.controllers.ContainsController(joystick))
+                            continue;
+                        foreach (var map in player.controllers.maps.GetMaps(ControllerType.Joystick, joystick.id))
+                        {
+                            foreach (var (actionName, _, _) in GetLayout())
+                            {
+                                var action = ReInput.mapping.GetAction(actionName);
+                                if (action != null)
+                                    map.DeleteElementMapsWithAction(action.id);
+                            }
+                        }
+                        MapForPlayer(player, joystick);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                EightPlayersPlugin.Log.LogWarning("ZeroTwo ForceRemap failed: " + e);
+            }
         }
 
         internal static void Apply()
@@ -131,7 +176,7 @@ namespace EightPlayers
             }
 
             int bound = 0, missing = 0;
-            foreach (var (actionName, pole, elementNames) in Layout)
+            foreach (var (actionName, pole, elementNames) in GetLayout())
             {
                 var action = ReInput.mapping.GetAction(actionName);
                 if (action == null)

@@ -18,6 +18,8 @@ namespace EightPlayers
         internal static ConfigEntry<bool> ShowLanMenu;
         internal static ConfigEntry<bool> ZeroTwoAutoMap;
         internal static ConfigEntry<string> ZeroTwoMatch;
+        internal static ConfigEntry<bool> DebugControllerLog;
+        internal static ConfigEntry<bool> ZeroTwoNintendoLabels;
         internal static ManualLogSource Log;
 
         private void Awake()
@@ -31,6 +33,10 @@ namespace EightPlayers
                 "Automatically install a compact button layout for 8BitDo Zero 2 controllers (no sticks/triggers).");
             ZeroTwoMatch = Config.Bind("Controllers", "ZeroTwoMatch", "8bitdo zero",
                 "Space-separated tokens that must all appear in a joystick's name for it to be treated as a Zero 2.");
+            DebugControllerLog = Config.Bind("Controllers", "DebugControllerLog", true,
+                "Log a CTRLDBG line to LogOutput.log whenever controller state changes (for troubleshooting).");
+            ZeroTwoNintendoLabels = Config.Bind("Controllers", "ZeroTwoNintendoLabels", true,
+                "Bind Zero 2 face buttons by their PRINTED (Nintendo-layout) labels instead of reported Xbox positions.");
 
             var harmony = new Harmony(Guid);
             harmony.PatchAll(Assembly.GetExecutingAssembly());
@@ -42,6 +48,8 @@ namespace EightPlayers
         {
             JoystickBinding.Tick();
             ZeroTwoMapping.Tick();
+            ControllerDebug.Tick();
+            CommandChannel.Tick();
         }
     }
 
