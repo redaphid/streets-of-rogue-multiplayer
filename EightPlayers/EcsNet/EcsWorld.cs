@@ -30,6 +30,12 @@ namespace EightPlayers.EcsNet
         public float Max;
     }
 
+    public struct LevelId
+    {
+        public int Seed;
+        public int Num;
+    }
+
     public sealed class EcsWorld
     {
         private interface IStore

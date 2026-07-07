@@ -50,7 +50,23 @@ One JSON object per line: `{ts, cat, ev, ...}` where `ts` is
 - `move/sample` {agent, pos} (every 25th fixed step per agent)
 - `net/call` {hub, method, args[]} (every Cmd/Rpc body invocation)
 
-Tooling: `node scripts/test/trace_summary.mjs <trace.jsonl>`.
+Tooling: `node scripts/test/trace_summary.mjs <trace.jsonl>`,
+`node scripts/test/trace_diff.mjs <a.jsonl> <b.jsonl> --cat level,agent`.
+
+## Determinism findings (SOR_SEED, 2026-07-07)
+
+`SOR_SEED=<string>` forces the game's user-set-seed path (applied at
+`LoadLevel.loadStuff` because `QuitToMainMenuClearStuff` wipes it during the
+boot flow). Two headless runs with the same seed showed:
+
+- **Deterministic**: level generation, agent spawn count/order/types (66/66,
+  exact sequence match after uid normalization), inventory event *counts*.
+- **Not deterministic**: loadout *contents* diverge partway through
+  generation (same NPC drew Cigarettes vs Syringe) — some RNG consumption is
+  frame-timing dependent. Movement samples drift with wall clock (expected).
+
+Parity gate for ECS ports: strict `trace_diff --cat level,agent` sequence
+match; `inv` compared by counts only.
 
 ## Write side: programmatic state manipulation
 

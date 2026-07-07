@@ -173,6 +173,27 @@ namespace EightPlayers
         }
     }
 
+    // SOR_SEED=<string> forces a deterministic map seed (the game's own
+    // user-set-seed path in loadStuff2). Used by the trace-parity harness:
+    // two runs with the same SOR_SEED must generate identical worlds.
+    // Applied at generation kickoff because QuitToMainMenuClearStuff wipes
+    // userSetSeed during the boot-to-menu flow.
+    [HarmonyPatch(typeof(LoadLevel), "loadStuff")]
+    internal static class ForceSeed_Patch
+    {
+        private static void Prefix(LoadLevel __instance)
+        {
+            var seed = System.Environment.GetEnvironmentVariable("SOR_SEED");
+            if (string.IsNullOrEmpty(seed))
+                return;
+            var gc = GameController.gameController;
+            if (gc == null || gc.sessionDataBig == null)
+                return;
+            gc.sessionDataBig.userSetSeed = seed;
+            EightPlayersPlugin.Log.LogInfo($"SOR_SEED forcing map seed '{seed}' at level load");
+        }
+    }
+
     // When the game starts without a reachable Steam client (e.g. a second window
     // launched directly for split-screen-style play), vanilla falls back to GOG
     // Galaxy. The Steam build ships no Galaxy native library, so every frame throws

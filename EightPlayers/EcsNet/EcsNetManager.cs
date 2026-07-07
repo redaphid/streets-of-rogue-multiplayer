@@ -218,6 +218,8 @@ namespace EightPlayers.EcsNet
                 _world.Set(e, new PlayerInfo { Name = (string)player["name"], Color = (int?)player["color"] ?? 0 });
             if (components["hp"] is JObject hp)
                 _world.Set(e, new Hp { Cur = (float?)hp["cur"] ?? 0, Max = (float?)hp["max"] ?? 0 });
+            if (components["level"] is JObject level)
+                _world.Set(e, new LevelId { Seed = (int?)level["seed"] ?? 0, Num = (int?)level["num"] ?? 0 });
         }
 
         // ---- outgoing ----
@@ -244,8 +246,10 @@ namespace EightPlayers.EcsNet
                         continue; // spawn in flight
                     lp.Tmp = _nextTmp++;
                     var name = _locals.Count > 1 ? $"{PlayerName}.{i + 1}" : PlayerName;
-                    _client.Send(Protocol.Spawn(lp.Tmp,
-                        Protocol.PlayerComponents(name, i + 1, p.x, p.y, lp.Agent.health, lp.Agent.healthMax)));
+                    var components = Protocol.PlayerComponents(name, i + 1, p.x, p.y, lp.Agent.health, lp.Agent.healthMax);
+                    var here = LocalLevel();
+                    components.Merge(Protocol.LevelComponent(here.Seed, here.Num));
+                    _client.Send(Protocol.Spawn(lp.Tmp, components));
                     lp.LastSent = p;
                     lp.HpDirty = false;
                 }
@@ -288,8 +292,19 @@ namespace EightPlayers.EcsNet
 
         // ---- ghosts ----
 
+        private static LevelId LocalLevel()
+        {
+            var gc = GameController.gameController;
+            return new LevelId
+            {
+                Seed = gc != null && gc.loadLevel != null ? gc.loadLevel.randomSeedNum : 0,
+                Num = gc != null && gc.sessionDataBig != null ? gc.sessionDataBig.curLevel : 0,
+            };
+        }
+
         private void UpdateGhosts()
         {
+            var here = LocalLevel();
             _world.ForEach<PlayerInfo>((e, info) =>
             {
                 if (_world.TryGet<Owned>(e, out var owned) && owned.ClientId == _myClientId)
@@ -302,6 +317,12 @@ namespace EightPlayers.EcsNet
                     ghost = CreateGhost(e, info);
                     _ghosts[e] = ghost;
                 }
+
+                // Only show players who are in the same generated world.
+                var sameLevel = !_world.TryGet<LevelId>(e, out var lvl)
+                    || (lvl.Seed == here.Seed && lvl.Num == here.Num);
+                if (ghost.Root.activeSelf != sameLevel)
+                    ghost.Root.SetActive(sameLevel);
                 ghost.Target = new Vector2(pos.X, pos.Y);
                 if (ghost.Label != null)
                     ghost.Label.text = _world.TryGet<Hp>(e, out var hp)
