@@ -28,6 +28,7 @@ export class GameRoom extends DurableObject {
   private roomName = ''
   private nextClient = 1
   private worldSeed: string | null = null
+  private worldNum = 1
 
   constructor(ctx: DurableObjectState, env: unknown) {
     super(ctx, env as never)
@@ -37,6 +38,7 @@ export class GameRoom extends DurableObject {
       if (meta) this.nextClient = meta.nextClient
       this.roomName = (await ctx.storage.get<string>('room')) ?? ''
       this.worldSeed = (await ctx.storage.get<string>('worldSeed')) ?? null
+      this.worldNum = (await ctx.storage.get<number>('worldNum')) ?? 1
       const stored = await ctx.storage.list<StoredEntity>({ prefix: 'e:' })
       for (const [key, ent] of stored) {
         this.world.restore(Number(key.slice(2)), ent.owner, ent.components)
@@ -96,7 +98,7 @@ export class GameRoom extends DurableObject {
           room: this.roomName,
           peers: this.peers(att.id),
           snapshot: this.world.snapshot(),
-          world: this.worldSeed !== null ? { seed: this.worldSeed } : null,
+          world: this.worldSeed !== null ? { seed: this.worldSeed, num: this.worldNum } : null,
         })
         this.broadcast({ t: 'peer', id: att.id, name: att.name, joined: true }, ws)
         return
@@ -129,16 +131,25 @@ export class GameRoom extends DurableObject {
       }
       case 'world': {
         if (!att.helloed) return
+        let changed = false
         const seed = String(msg.seed ?? '').slice(0, 64)
-        if (!seed) return
-        if (this.worldSeed !== null) {
-          // First write wins; remind the sender what the room's seed is.
-          this.send(ws, { t: 'world', seed: this.worldSeed })
-          return
+        if (seed && this.worldSeed === null) {
+          this.worldSeed = seed
+          await this.ctx.storage.put('worldSeed', seed)
+          changed = true
         }
-        this.worldSeed = seed
-        await this.ctx.storage.put('worldSeed', seed)
-        this.broadcast({ t: 'world', seed }, ws)
+        const num = Number(msg.num ?? 0)
+        if (this.worldSeed !== null && Number.isInteger(num) && num > this.worldNum) {
+          this.worldNum = num
+          await this.ctx.storage.put('worldNum', num)
+          changed = true
+        }
+        if (this.worldSeed === null) return
+        const evt = { t: 'world', seed: this.worldSeed, num: this.worldNum } as const
+        if (changed) this.broadcast(evt, ws)
+        // Always answer the sender with the authoritative state (covers
+        // lost seed races and stale num proposals).
+        this.send(ws, evt)
         return
       }
       case 'ping':
@@ -169,7 +180,9 @@ export class GameRoom extends DurableObject {
     const remaining = this.ctx.getWebSockets().filter((other) => other !== ws)
     if (remaining.length === 0 && this.worldSeed !== null) {
       this.worldSeed = null
+      this.worldNum = 1
       await this.ctx.storage.delete('worldSeed')
+      await this.ctx.storage.delete('worldNum')
     }
   }
 

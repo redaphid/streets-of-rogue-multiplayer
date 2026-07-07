@@ -22,4 +22,13 @@ namespace EightPlayers.EcsNet
             EcsNetManager.Instance?.OnLocalHealthChanged(__instance.agent);
         }
     }
+
+    [HarmonyPatch(typeof(LoadLevel), "IncreaseLevel")]
+    internal static class EcsLevelAdvanceHook_Patch
+    {
+        private static void Postfix()
+        {
+            EcsNetManager.Instance?.OnLocalLevelAdvance();
+        }
+    }
 }

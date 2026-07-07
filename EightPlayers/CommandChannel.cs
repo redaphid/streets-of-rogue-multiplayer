@@ -132,6 +132,10 @@ namespace EightPlayers
                     GameStateApi.OpenDoor(int.Parse(parts[1]));
                     Out($"door {parts[1]} opened");
                     break;
+                case "nextlevel":
+                    GameController.gameController.loadLevel.NextLevel();
+                    Out("next level triggered");
+                    break;
                 default: Out("unknown command"); break;
             }
         }

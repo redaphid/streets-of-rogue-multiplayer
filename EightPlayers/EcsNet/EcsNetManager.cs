@@ -38,7 +38,11 @@ namespace EightPlayers.EcsNet
         /// </summary>
         public static string AdoptedSeed { get; private set; }
 
+        /// <summary>The party's current level per the room (monotonic).</summary>
+        public static int RoomLevel { get; private set; } = 1;
+
         private bool _worldClaimSent;
+        private float _nextFollowAt;
 
         private sealed class LocalPlayer
         {
@@ -145,6 +149,7 @@ namespace EightPlayers.EcsNet
             _myClientId = -1;
             _worldClaimSent = false;
             AdoptedSeed = null;
+            RoomLevel = 1;
             _world.Clear();
             _avatars.Clear();
             foreach (var ghost in _ghosts.Values)
@@ -200,7 +205,8 @@ namespace EightPlayers.EcsNet
                     if (!string.IsNullOrEmpty(msg.WorldSeed))
                     {
                         AdoptedSeed = msg.WorldSeed;
-                        EightPlayersPlugin.Log.LogInfo($"ECSNET room world seed: {msg.WorldSeed}");
+                        RoomLevel = msg.WorldLevel;
+                        EightPlayersPlugin.Log.LogInfo($"ECSNET room world seed: {msg.WorldSeed} level {msg.WorldLevel}");
                     }
                     EightPlayersPlugin.Log.LogInfo(
                         $"ECSNET joined room {msg.Room} as client {msg.You} ({msg.Snapshot.Count} entities, {msg.Peers.Count} peers)");
@@ -208,7 +214,9 @@ namespace EightPlayers.EcsNet
 
                 case "world":
                     AdoptedSeed = msg.WorldSeed;
-                    EightPlayersPlugin.Log.LogInfo($"ECSNET room world seed: {msg.WorldSeed}");
+                    if (msg.WorldLevel > RoomLevel)
+                        RoomLevel = msg.WorldLevel;
+                    EightPlayersPlugin.Log.LogInfo($"ECSNET room world: seed {msg.WorldSeed} level {msg.WorldLevel}");
                     break;
 
                 case "spawn":
@@ -269,10 +277,46 @@ namespace EightPlayers.EcsNet
 
         // ---- outgoing ----
 
+        /// <summary>Called from the IncreaseLevel choke-point hook (EcsHooks).</summary>
+        public void OnLocalLevelAdvance()
+        {
+            var gc = GameController.gameController;
+            if (!_welcomed || gc == null || gc.sessionDataBig == null)
+                return;
+            var num = gc.sessionDataBig.curLevel;
+            if (num > RoomLevel)
+            {
+                RoomLevel = num;
+                _client.Send(Protocol.WorldNum(num));
+                EightPlayersPlugin.Log.LogInfo($"ECSNET advancing room to level {num}");
+            }
+        }
+
+        // The room's party moved ahead of us: take the vanilla next-level
+        // path to catch up (same seed -> same world). One step per cooldown;
+        // multi-level gaps are closed one transition at a time.
+        private void FollowRoomLevel()
+        {
+            if (!EightPlayersPlugin.EcsFollowLevel.Value || AdoptedSeed == null)
+                return;
+            var gc = GameController.gameController;
+            if (gc == null || gc.sessionDataBig == null || gc.loadLevel == null)
+                return;
+            if (gc.sessionDataBig.curLevel >= RoomLevel || _locals.Count == 0)
+                return;
+            if (Time.unscaledTime < _nextFollowAt)
+                return;
+            _nextFollowAt = Time.unscaledTime + 20f;
+            EightPlayersPlugin.Log.LogInfo(
+                $"ECSNET following room: level {gc.sessionDataBig.curLevel} -> {RoomLevel}");
+            gc.loadLevel.NextLevel();
+        }
+
         private void PublishLocalPlayers()
         {
             SyncLocalAgentList();
             ClaimWorldSeedIfFirst();
+            FollowRoomLevel();
 
             for (int i = 0; i < _locals.Count; i++)
             {

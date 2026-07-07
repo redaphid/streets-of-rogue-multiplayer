@@ -28,6 +28,9 @@ namespace EightPlayers.EcsNet
         public static string World(string seed) =>
             new JObject { ["t"] = "world", ["seed"] = seed }.ToString(Newtonsoft.Json.Formatting.None);
 
+        public static string WorldNum(int num) =>
+            new JObject { ["t"] = "world", ["num"] = num }.ToString(Newtonsoft.Json.Formatting.None);
+
         public static JObject PosComponent(float x, float y) =>
             new JObject { ["pos"] = new JObject { ["x"] = x, ["y"] = y } };
 
@@ -63,6 +66,7 @@ namespace EightPlayers.EcsNet
         public long Ts;           // pong
         public string Message;    // error
         public string WorldSeed;  // welcome (null if unset) / world
+        public int WorldLevel = 1; // welcome / world
 
         public static ServerMsg Parse(string raw)
         {
@@ -76,10 +80,14 @@ namespace EightPlayers.EcsNet
                     msg.Snapshot = (JArray)jo["snapshot"];
                     msg.Peers = (JArray)jo["peers"];
                     if (jo["world"] is JObject world)
+                    {
                         msg.WorldSeed = (string)world["seed"];
+                        msg.WorldLevel = (int?)world["num"] ?? 1;
+                    }
                     break;
                 case "world":
                     msg.WorldSeed = (string)jo["seed"];
+                    msg.WorldLevel = (int?)jo["num"] ?? 1;
                     break;
                 case "spawn":
                     msg.Entity = (int)jo["e"];

@@ -39,10 +39,14 @@ export interface PingMsg {
   ts: number
 }
 
-/** Claim the room's shared world seed. First write wins; later writes are ignored. */
+/**
+ * Update the room's shared world. seed: first write wins.
+ * num: the party's current level, monotonically increasing.
+ */
 export interface WorldReq {
   t: 'world'
-  seed: string
+  seed?: string
+  num?: number
 }
 
 export type ClientMsg = HelloMsg | SpawnReq | SetReq | DespawnReq | PingMsg | WorldReq
@@ -63,12 +67,13 @@ export interface WelcomeMsg {
   peers: { id: number; name: string }[]
   snapshot: EntityRecord[]
   /** null until some client claims the room's world seed */
-  world: { seed: string } | null
+  world: { seed: string; num: number } | null
 }
 
 export interface WorldEvt {
   t: 'world'
   seed: string
+  num: number
 }
 
 export interface SpawnEvt {

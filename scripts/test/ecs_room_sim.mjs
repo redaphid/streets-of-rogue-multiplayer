@@ -99,6 +99,19 @@ try {
   const dave = await connect('dave')
   const daveWelcome = await recv(dave, (m) => m.t === 'welcome', 'dave welcome')
   ok(daveWelcome.world?.seed === 'seed-alpha', 'late joiner gets world seed in welcome')
+  ok(daveWelcome.world?.num === 1, 'world starts at level 1')
+
+  // --- level number: monotonic bump, broadcast, stale ignored ---
+  alice.ws.send(JSON.stringify({ t: 'world', num: 2 }))
+  const bump = await recv(carol, (m) => m.t === 'world' && m.num === 2, 'carol sees level bump')
+  ok(bump.seed === 'seed-alpha', 'level bump carries seed')
+  carol.ws.send(JSON.stringify({ t: 'world', num: 1 }))
+  const stale = await recv(carol, (m) => m.t === 'world', 'carol answered on stale bump')
+  ok(stale.num === 2, 'stale level proposal ignored (num stays 2)')
+  const erin = await connect('erin')
+  const erinWelcome = await recv(erin, (m) => m.t === 'welcome', 'erin welcome')
+  ok(erinWelcome.world?.num === 2, 'late joiner gets current level num')
+  erin.ws.close()
   dave.ws.close()
 
   alice.ws.close()
