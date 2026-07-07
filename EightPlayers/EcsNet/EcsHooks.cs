@@ -64,6 +64,21 @@ namespace EightPlayers.EcsNet
             if (__result != null)
                 EcsNetManager.Instance?.RegisterNpcSpawn(__result);
         }
+
+        // EXPERIMENTAL (branch npc-dynamic-spawns): followers cancel
+        // game-initiated post-load NPC spawns — the authority's copy arrives
+        // as a dynamic npc entity instead. Callers receiving null is the risk
+        // under test; BypassSuppression exempts our own deliberate spawns.
+        private static bool Prefix(ref Agent __result, int playerColor)
+        {
+            if (NpcSync.BypassSuppression || playerColor != 0)
+                return true;
+            var manager = EcsNetManager.Instance;
+            if (manager == null || !manager.ShouldSuppressDynamicSpawn)
+                return true;
+            __result = null;
+            return false;
+        }
     }
 
     [HarmonyPatch(typeof(LoadLevel), "SetupMore2")]

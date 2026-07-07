@@ -53,7 +53,17 @@ namespace EightPlayers
             var gc = GC;
             if (gc == null || gc.spawnerMain == null)
                 throw new InvalidOperationException("no game running");
-            return gc.spawnerMain.SpawnAgent(new Vector3(pos.x, pos.y, 0f), agentType, playerColor);
+            // Deliberate spawns (avatars, remote applies, command verbs) must
+            // not be eaten by the follower-side dynamic-spawn suppression.
+            try
+            {
+                EcsNet.NpcSync.BypassSuppression = true;
+                return gc.spawnerMain.SpawnAgent(new Vector3(pos.x, pos.y, 0f), agentType, playerColor);
+            }
+            finally
+            {
+                EcsNet.NpcSync.BypassSuppression = false;
+            }
         }
 
         /// <summary>Positive heals, negative damages — same convention as StatusEffects.ChangeHealth.</summary>
