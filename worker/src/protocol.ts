@@ -49,7 +49,18 @@ export interface WorldReq {
   num?: number
 }
 
-export type ClientMsg = HelloMsg | SpawnReq | SetReq | DespawnReq | PingMsg | WorldReq
+/**
+ * Fire-and-forget world event (door opened, effect triggered...). Relayed to
+ * every other client, never stored — late joiners reconstruct state from the
+ * deterministic world, not the event stream.
+ */
+export interface EventReq {
+  t: 'event'
+  kind: string
+  data?: unknown
+}
+
+export type ClientMsg = HelloMsg | SpawnReq | SetReq | DespawnReq | PingMsg | WorldReq | EventReq
 
 // ---- server -> client ----
 
@@ -113,4 +124,20 @@ export interface ErrorMsg {
   message: string
 }
 
-export type ServerMsg = WelcomeMsg | SpawnEvt | SetEvt | DespawnEvt | PeerEvt | PongMsg | ErrorMsg | WorldEvt
+export interface EventEvt {
+  t: 'event'
+  from: number
+  kind: string
+  data?: unknown
+}
+
+export type ServerMsg =
+  | WelcomeMsg
+  | SpawnEvt
+  | SetEvt
+  | DespawnEvt
+  | PeerEvt
+  | PongMsg
+  | ErrorMsg
+  | WorldEvt
+  | EventEvt

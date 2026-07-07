@@ -101,6 +101,37 @@ namespace EightPlayers
                 agent.rigidBody2D.position = pos;
         }
 
+        public static IEnumerable<Door> Doors()
+        {
+            var gc = GC;
+            if (gc == null)
+                yield break;
+            foreach (var objectReal in gc.objectRealList)
+                if (objectReal is Door door)
+                    yield return door;
+        }
+
+        /// <summary>
+        /// Find a door by world position. UIDs drift between instances
+        /// (instance-local counters), but generation-identical worlds put the
+        /// same door at the same coordinates.
+        /// </summary>
+        public static Door FindDoorAt(Vector2 pos, float tolerance = 0.5f)
+        {
+            Door best = null;
+            float bestSqr = tolerance * tolerance;
+            foreach (var door in Doors())
+            {
+                float d = ((Vector2)door.tr.position - pos).sqrMagnitude;
+                if (d <= bestSqr)
+                {
+                    best = door;
+                    bestSqr = d;
+                }
+            }
+            return best;
+        }
+
         public static Door FindDoor(int uid)
         {
             var gc = GC;

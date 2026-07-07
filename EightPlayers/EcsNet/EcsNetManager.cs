@@ -250,10 +250,60 @@ namespace EightPlayers.EcsNet
                     EightPlayersPlugin.Log.LogInfo($"ECSNET peer {msg.PeerName} {(msg.Joined ? "joined" : "left")}");
                     break;
 
+                case "event":
+                    ApplyEvent(msg);
+                    break;
+
                 case "error":
                     EightPlayersPlugin.Log.LogWarning($"ECSNET server error: {msg.Message}");
                     break;
             }
+        }
+
+        // World events from peers, applied through GameStateApi so they take
+        // vanilla paths. Deterministic worlds mean object UIDs line up across
+        // instances; a missing UID just means we're not in that level yet.
+        private void ApplyEvent(ServerMsg msg)
+        {
+            switch (msg.Kind)
+            {
+                case "door-open":
+                {
+                    // Doors are addressed by position: UIDs drift between
+                    // instances, coordinates don't (identical generation).
+                    var x = (float?)msg.EventData?["x"];
+                    var y = (float?)msg.EventData?["y"];
+                    if (x == null || y == null)
+                        return;
+                    var door = GameStateApi.FindDoorAt(new Vector2(x.Value, y.Value));
+                    if (door == null)
+                    {
+                        EightPlayersPlugin.Log.LogWarning(
+                            $"ECSNET door-open from peer {msg.From} at ({x:0.#},{y:0.#}): no door there locally");
+                        return;
+                    }
+                    try
+                    {
+                        door.OpenDoor(null);
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET door at ({x:0.#},{y:0.#}) opened by peer {msg.From} (local uid {door.UID})");
+                    }
+                    catch (Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning($"ECSNET door-open apply failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    return;
+                }
+            }
+        }
+
+        /// <summary>Called from the Door.OpenDoor choke-point hook (EcsHooks).</summary>
+        public void OnLocalDoorOpen(Door door)
+        {
+            if (!_welcomed || door == null || door.tr == null)
+                return;
+            Vector2 p = door.tr.position;
+            _client.Send(Protocol.Event("door-open", new JObject { ["x"] = p.x, ["y"] = p.y }));
         }
 
         private void ApplyComponents(int e, JObject components)

@@ -129,9 +129,26 @@ namespace EightPlayers
                     Out($"agent {parts[1]} teleported to {parts[2]},{parts[3]}");
                     break;
                 case "opendoor":
-                    GameStateApi.OpenDoor(int.Parse(parts[1]));
-                    Out($"door {parts[1]} opened");
+                    GameStateApi.OpenDoor(int.Parse(parts[1]),
+                        parts.Length > 2 ? GameStateApi.FindAgent(int.Parse(parts[2])) : null);
+                    Out($"door {parts[1]} opened{(parts.Length > 2 ? $" by agent {parts[2]}" : "")}");
                     break;
+                case "doors":
+                {
+                    var gc = GameController.gameController;
+                    UnityEngine.Vector2 origin = gc?.playerAgent != null ? (UnityEngine.Vector2)gc.playerAgent.tr.position : UnityEngine.Vector2.zero;
+                    var doors = new List<Door>(GameStateApi.Doors());
+                    doors.Sort((a, b) =>
+                        ((UnityEngine.Vector2)a.tr.position - origin).sqrMagnitude
+                        .CompareTo(((UnityEngine.Vector2)b.tr.position - origin).sqrMagnitude));
+                    for (int i = 0; i < doors.Count && i < 10; i++)
+                    {
+                        var d = doors[i];
+                        UnityEngine.Vector2 p = d.tr.position;
+                        Out($"  door uid={d.UID} type={d.doorType} open={d.open} pos=({p.x:0.#},{p.y:0.#})");
+                    }
+                    break;
+                }
                 case "nextlevel":
                     GameController.gameController.loadLevel.NextLevel();
                     Out("next level triggered");

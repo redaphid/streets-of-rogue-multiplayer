@@ -31,4 +31,16 @@ namespace EightPlayers.EcsNet
             EcsNetManager.Instance?.OnLocalLevelAdvance();
         }
     }
+
+    // Publish doors opened by LOCAL players only. Remote applies go through
+    // GameStateApi.OpenDoor with a null agent, so they don't loop back here.
+    [HarmonyPatch(typeof(Door), "OpenDoor", typeof(Agent), typeof(bool))]
+    internal static class EcsDoorHook_Patch
+    {
+        private static void Postfix(Door __instance, Agent myAgent)
+        {
+            if (myAgent != null && myAgent.isPlayer > 0 && myAgent.isPlayer != 99)
+                EcsNetManager.Instance?.OnLocalDoorOpen(__instance);
+        }
+    }
 }

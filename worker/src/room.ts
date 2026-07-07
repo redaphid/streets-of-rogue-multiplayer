@@ -152,6 +152,13 @@ export class GameRoom extends DurableObject {
         this.send(ws, evt)
         return
       }
+      case 'event': {
+        if (!att.helloed) return
+        const kind = String(msg.kind ?? '').slice(0, 32)
+        if (!kind) return
+        this.broadcast({ t: 'event', from: att.id, kind, data: msg.data }, ws)
+        return
+      }
       case 'ping':
         this.send(ws, { t: 'pong', ts: msg.ts })
         return

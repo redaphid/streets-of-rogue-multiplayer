@@ -68,6 +68,12 @@ boot flow). Two headless runs with the same seed showed:
 Parity gate for ECS ports: strict `trace_diff --cat level,agent` sequence
 match; `inv` compared by counts only.
 
+**Object identity across instances**: PlayfieldObject UIDs come from an
+instance-local counter and drift between clients (observed +2 offset on
+otherwise byte-identical worlds — same doors, same positions, same order).
+Address world objects by **quantized position** (+ type as a sanity check),
+never by UID. `GameStateApi.FindDoorAt(pos)` is the pattern.
+
 ## Write side: programmatic state manipulation
 
 `GameStateApi` (EightPlayers/GameStateApi.cs) mutates live state through the

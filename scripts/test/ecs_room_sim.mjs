@@ -114,6 +114,12 @@ try {
   erin.ws.close()
   dave.ws.close()
 
+  // --- transient events: relayed to peers with sender id, not echoed back ---
+  alice.ws.send(JSON.stringify({ t: 'event', kind: 'door-open', data: { door: 123 } }))
+  const evt = await recv(carol, (m) => m.t === 'event', 'carol receives event')
+  ok(evt.kind === 'door-open' && evt.data?.door === 123, 'event kind+data relayed')
+  ok(evt.from === 1, 'event carries sender id')
+
   alice.ws.close()
   carol.ws.close()
 } catch (err) {
