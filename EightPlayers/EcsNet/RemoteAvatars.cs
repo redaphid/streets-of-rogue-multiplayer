@@ -16,6 +16,7 @@ namespace EightPlayers.EcsNet
             public Agent Agent;
             public Vector2 Target;
             public string Name;
+            public bool AppliedDead;
         }
 
         private readonly Dictionary<int, Avatar> _avatars = new Dictionary<int, Avatar>();
@@ -53,6 +54,28 @@ namespace EightPlayers.EcsNet
                 {
                     if (avatar != null)
                         Remove(e);
+                    return;
+                }
+
+                // The player this avatar represents is dead: kill the avatar
+                // through the vanilla path and keep the corpse (no respawn).
+                if (world.TryGet<DeadTag>(e, out var dead) && dead.Value)
+                {
+                    if (avatar != null && avatar.Agent != null && !avatar.AppliedDead)
+                    {
+                        avatar.AppliedDead = true;
+                        if (!avatar.Agent.dead)
+                        {
+                            try
+                            {
+                                avatar.Agent.statusEffects.SetupDeath(null, killedOnClient: true, noSFX: false);
+                            }
+                            catch
+                            {
+                                // teardown race; corpse state is what matters
+                            }
+                        }
+                    }
                     return;
                 }
 

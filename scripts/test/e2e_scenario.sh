@@ -148,6 +148,16 @@ else
   cmd ecs0 ecs | grep "E2EB" | grep -q "hp=$BHP_AFTER" && ok "B's new hp visible on A" || fail "B's new hp visible on A"
 fi
 
+echo "[10/10] player death propagates"
+if [ -n "${AVUID:-}" ]; then
+  cmd ecs0 "hp $AVUID -999" >/dev/null
+  sleep 8
+  cmd ecs1 state | grep "player:" | grep -q "dead=True" && ok "B's real player died from lethal pvp hit" || fail "B's real player died"
+  cmd ecs0 agents | grep "uid=$AVUID" | grep -q "dead=True" && ok "B's avatar played death on A" || fail "B's avatar played death on A"
+else
+  fail "player death propagates (no avatar uid)"
+fi
+
 echo
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

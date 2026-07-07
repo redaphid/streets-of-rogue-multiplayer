@@ -110,7 +110,17 @@ namespace EightPlayers.EcsNet
         /// <summary>Called from the SetupDeath choke-point hook (EcsHooks).</summary>
         public void OnAgentDeath(Agent agent)
         {
-            if (agent != null && _wasNpcAuthority)
+            if (agent == null)
+                return;
+            // My own player died: mark it on my entity so peers' avatars die too.
+            foreach (var lp in _locals)
+                if (ReferenceEquals(lp.Agent, agent))
+                {
+                    if (_welcomed && lp.Entity >= 0)
+                        SendDead(lp.Entity, agent.health, agent.healthMax);
+                    return;
+                }
+            if (_wasNpcAuthority)
                 _npcs.MarkNpcDeath(agent);
         }
 
