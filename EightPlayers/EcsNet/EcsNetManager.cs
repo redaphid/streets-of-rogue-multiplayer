@@ -294,7 +294,70 @@ namespace EightPlayers.EcsNet
                     }
                     return;
                 }
+
+                case "item-pickup":
+                {
+                    var x = (float?)msg.EventData?["x"];
+                    var y = (float?)msg.EventData?["y"];
+                    var name = (string)msg.EventData?["name"];
+                    if (x == null || y == null || name == null)
+                        return;
+                    var item = GameStateApi.FindGroundItemAt(new Vector2(x.Value, y.Value), name);
+                    if (item == null)
+                    {
+                        EightPlayersPlugin.Log.LogWarning(
+                            $"ECSNET item-pickup '{name}' at ({x:0.#},{y:0.#}) from peer {msg.From}: not found locally");
+                        return;
+                    }
+                    try
+                    {
+                        item.DestroyMeFromClient();
+                        EightPlayersPlugin.Log.LogInfo($"ECSNET ground item '{name}' at ({x:0.#},{y:0.#}) taken by peer {msg.From}");
+                    }
+                    catch (Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning($"ECSNET item-pickup apply failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    return;
+                }
+
+                case "item-drop":
+                {
+                    var x = (float?)msg.EventData?["x"];
+                    var y = (float?)msg.EventData?["y"];
+                    var name = (string)msg.EventData?["name"];
+                    if (x == null || y == null || name == null)
+                        return;
+                    try
+                    {
+                        GameStateApi.SpawnGroundItem(new Vector2(x.Value, y.Value), name);
+                        EightPlayersPlugin.Log.LogInfo($"ECSNET ground item '{name}' dropped at ({x:0.#},{y:0.#}) by peer {msg.From}");
+                    }
+                    catch (Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning($"ECSNET item-drop apply failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    return;
+                }
             }
+        }
+
+        /// <summary>Called from the Item.Interact choke-point hook (EcsHooks).</summary>
+        public void OnLocalItemPickup(string itemName, Vector2 pos)
+        {
+            if (_welcomed && !string.IsNullOrEmpty(itemName))
+                _client.Send(Protocol.Event("item-pickup",
+                    new JObject { ["x"] = pos.x, ["y"] = pos.y, ["name"] = itemName }));
+        }
+
+        /// <summary>Called from the InvDatabase.DropItem choke-point hook (EcsHooks).</summary>
+        public void OnLocalItemDrop(Item worldItem)
+        {
+            if (!_welcomed || worldItem == null || worldItem.invItem == null || worldItem.tr == null)
+                return;
+            Vector2 p = worldItem.tr.position;
+            _client.Send(Protocol.Event("item-drop",
+                new JObject { ["x"] = p.x, ["y"] = p.y, ["name"] = worldItem.invItem.invItemName }));
         }
 
         /// <summary>Called from the Door.OpenDoor choke-point hook (EcsHooks).</summary>

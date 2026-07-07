@@ -153,6 +153,27 @@ namespace EightPlayers
                     GameController.gameController.loadLevel.NextLevel();
                     Out("next level triggered");
                     break;
+                case "items":
+                {
+                    var gc = GameController.gameController;
+                    UnityEngine.Vector2 origin = gc?.playerAgent != null ? (UnityEngine.Vector2)gc.playerAgent.tr.position : UnityEngine.Vector2.zero;
+                    var items = new List<Item>(GameStateApi.GroundItems());
+                    items.Sort((a, b) =>
+                        ((UnityEngine.Vector2)a.tr.position - origin).sqrMagnitude
+                        .CompareTo(((UnityEngine.Vector2)b.tr.position - origin).sqrMagnitude));
+                    for (int i = 0; i < items.Count && i < 10; i++)
+                    {
+                        UnityEngine.Vector2 p = items[i].tr.position;
+                        Out($"  item '{items[i].invItem?.invItemName}' pos=({p.x:0.#},{p.y:0.#})");
+                    }
+                    break;
+                }
+                case "pickup":
+                    // pickup <agentUid> <x> <y> <itemName>
+                    GameStateApi.PickUpGroundItem(int.Parse(parts[1]), ParseVec(parts[2], parts[3].Split(' ')[0]),
+                        parts[3].Contains(" ") ? parts[3].Substring(parts[3].IndexOf(' ') + 1) : null);
+                    Out("pickup attempted");
+                    break;
                 default: Out("unknown command"); break;
             }
         }

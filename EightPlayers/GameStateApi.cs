@@ -132,6 +132,54 @@ namespace EightPlayers
             return best;
         }
 
+        public static IEnumerable<Item> GroundItems()
+        {
+            var gc = GC;
+            if (gc == null)
+                yield break;
+            foreach (var item in gc.itemList)
+                if (item != null && item.gameObject != null && item.gameObject.activeSelf)
+                    yield return item;
+        }
+
+        /// <summary>Ground item by position (+name check) — same drift rationale as FindDoorAt.</summary>
+        public static Item FindGroundItemAt(Vector2 pos, string itemName, float tolerance = 0.75f)
+        {
+            Item best = null;
+            float bestSqr = tolerance * tolerance;
+            foreach (var item in GroundItems())
+            {
+                if (itemName != null && item.invItem != null
+                    && !string.Equals(item.invItem.invItemName, itemName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                float d = ((Vector2)item.tr.position - pos).sqrMagnitude;
+                if (d <= bestSqr)
+                {
+                    best = item;
+                    bestSqr = d;
+                }
+            }
+            return best;
+        }
+
+        public static Item SpawnGroundItem(Vector2 pos, string itemName)
+        {
+            var gc = GC;
+            if (gc == null || gc.spawnerMain == null)
+                throw new InvalidOperationException("no game running");
+            return gc.spawnerMain.SpawnItem(new Vector3(pos.x, pos.y, 0f), itemName);
+        }
+
+        /// <summary>Drive a vanilla pickup: the agent interacts with the ground item.</summary>
+        public static void PickUpGroundItem(int agentUid, Vector2 pos, string itemName)
+        {
+            var agent = Require(agentUid);
+            var item = FindGroundItemAt(pos, itemName);
+            if (item == null)
+                throw new ArgumentException($"no ground item '{itemName}' near ({pos.x:0.#},{pos.y:0.#})");
+            item.Interact(agent);
+        }
+
         public static Door FindDoor(int uid)
         {
             var gc = GC;

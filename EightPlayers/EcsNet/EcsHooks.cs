@@ -32,6 +32,47 @@ namespace EightPlayers.EcsNet
         }
     }
 
+    // Ground-item pickup by a local player. Success test: after Interact the
+    // InvItem's database points at the picking agent's inventory. Remote
+    // applies use DestroyMeFromClient (not Interact), so no loop.
+    [HarmonyPatch(typeof(Item), "Interact", typeof(Agent))]
+    internal static class EcsItemPickupHook_Patch
+    {
+        private static void Prefix(Item __instance, out UnityEngine.Vector2 __state)
+        {
+            __state = __instance.tr != null ? (UnityEngine.Vector2)__instance.tr.position : UnityEngine.Vector2.zero;
+        }
+
+        private static void Postfix(Item __instance, Agent agent, UnityEngine.Vector2 __state)
+        {
+            if (agent == null || agent.isPlayer <= 0 || agent.isPlayer == 99)
+                return;
+            if (__instance.invItem == null || __instance.invItem.database != agent.inventory)
+                return;
+            EcsNetManager.Instance?.OnLocalItemPickup(__instance.invItem.invItemName, __state);
+        }
+    }
+
+    // Item dropped by a local player -> a ground item appeared. Remote
+    // applies use SpawnerMain.SpawnItem (not DropItem), so no loop.
+    [HarmonyPatch]
+    internal static class EcsItemDropHook_Patch
+    {
+        private static MethodBase TargetMethod() =>
+            AccessTools.GetDeclaredMethods(typeof(InvDatabase))
+                .Where(m => m.Name == "DropItem")
+                .OrderByDescending(m => m.GetParameters().Length)
+                .First();
+
+        private static void Postfix(InvDatabase __instance, Item __result)
+        {
+            var agent = __instance.agent;
+            if (__result == null || agent == null || agent.isPlayer <= 0 || agent.isPlayer == 99)
+                return;
+            EcsNetManager.Instance?.OnLocalItemDrop(__result);
+        }
+    }
+
     // Publish doors opened by LOCAL players only. Remote applies go through
     // GameStateApi.OpenDoor with a null agent, so they don't loop back here.
     [HarmonyPatch(typeof(Door), "OpenDoor", typeof(Agent), typeof(bool))]
