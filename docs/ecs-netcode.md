@@ -80,8 +80,11 @@ Ported so far:
    (e.g. only the entity in range may open a door).
 5. **NPCs & authority migration** — one client (first in room) simulates NPCs
    and publishes them; DO reassigns simulation ownership on disconnect.
-6. **Mirror retirement** — patch out NetworkManagerUWP entry points; the game
-   always runs "offline" locally and all multiplayer flows through the DO.
+6. **Mirror retirement (proven 2026-07-07)** — the full e2e gate (20
+   assertions) passes with both instances in pure single-player mode
+   (`E2E_MODE=solo`): NetworkServer never starts and every synced system
+   works through the DO alone. Real usage: play single-player with
+   `[EcsNet] Room` set. Formal entry-point patching is optional hardening.
 
 Risks / notes
 
