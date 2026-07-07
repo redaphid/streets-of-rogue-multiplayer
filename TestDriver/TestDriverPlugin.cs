@@ -10,7 +10,7 @@ namespace SorTestDriver
 {
     // Headless end-to-end test harness. Inert unless SOR_TEST_MODE is set.
     //
-    //   SOR_TEST_MODE   = host | client
+    //   SOR_TEST_MODE   = host | client | solo   (solo: single-player game, no Mirror)
     //   SOR_TEST_ADDR   = host address for clients      (default 127.0.0.1)
     //   SOR_TEST_PORT   = LAN port                      (default 7777)
     //   SOR_TEST_NAME   = multiplayer player name       (default TestN)
@@ -74,7 +74,45 @@ namespace SorTestDriver
             {
                 case "boot":
                     if (now - started > 12f)
-                        state = "open-lan";
+                        state = mode == "solo" ? "start-solo" : "open-lan";
+                    break;
+
+                case "start-solo":
+                    if (now < nextAttempt)
+                        return;
+                    nextAttempt = now + 5f;
+                    // Single-player quick start: opens character select (the
+                    // in-game state auto-accepts) and runs with Mirror never
+                    // starting — the proof path for the ECS-only layer.
+                    try
+                    {
+                        gc.menuGUI.PressedQuickStart();
+                        Report("pressed-quickstart-solo");
+                        state = "solo-accept";
+                        nextAttempt = now + 3f;
+                    }
+                    catch (Exception e)
+                    {
+                        Report("PressedQuickStart threw: " + e.Message);
+                    }
+                    break;
+
+                case "solo-accept":
+                    if (now < nextAttempt)
+                        return;
+                    nextAttempt = now + 5f;
+                    // Char select is open with a default character; start a
+                    // one-player offline game.
+                    try
+                    {
+                        gc.menuGUI.PressedStartGame(1);
+                        Report("pressed-startgame-solo");
+                        state = "in-game";
+                    }
+                    catch (Exception e)
+                    {
+                        Report("PressedStartGame threw: " + e.Message);
+                    }
                     break;
 
                 case "open-lan":

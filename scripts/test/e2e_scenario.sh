@@ -11,6 +11,7 @@
 set -u
 
 ROOM="${1:-E2E$RANDOM}"
+MODE="${E2E_MODE:-host}"   # host = Mirror LAN self-host per instance; solo = single-player, Mirror never starts
 GAME="$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Streets of Rogue"
 CL="$HOME/.var/app/com.valvesoftware.Steam/data/sor-clones"
 RD="$HOME/.var/app/com.valvesoftware.Steam/data/sor-test/e2e"
@@ -49,7 +50,7 @@ waitlog() {
 launch() { # <inst> <name> <port>
   mkdir -p "$RD/$1"
   flatpak run --command=sh \
-    --env=SOR_TEST_MODE=host --env=SOR_TEST_NAME="$2" --env=SOR_TEST_PORT="$3" --env=SOR_TEST_ADDR=127.0.0.1 \
+    --env=SOR_TEST_MODE="$MODE" --env=SOR_TEST_NAME="$2" --env=SOR_TEST_PORT="$3" --env=SOR_TEST_ADDR=127.0.0.1 \
     --env=SOR_TEST_REPORT="$RD/$1/report.log" \
     --env=SOR_ECS_ROOM="$ROOM" --env=SOR_ECS_SERVER=ws://127.0.0.1:8787 --env=SOR_ECS_NAME="$2" \
     com.valvesoftware.Steam -c \
@@ -63,7 +64,7 @@ cleanup() { pkill -9 -f 'StreetsOfRogue[L]inux' 2>/dev/null; }
 trap cleanup EXIT
 
 # ---- scenario -----------------------------------------------------------
-echo "e2e scenario in room $ROOM"
+echo "e2e scenario in room $ROOM (mode=$MODE)"
 curl -sf -m 3 http://127.0.0.1:8787/ >/dev/null || { echo "wrangler dev not running"; exit 2; }
 pgrep -f 'StreetsOfRogue[L]inux' >/dev/null && { echo "game instances already running"; exit 2; }
 rm -f "$CL"/ecs0/BepInEx/LogOutput.log "$CL"/ecs1/BepInEx/LogOutput.log \
@@ -84,17 +85,21 @@ AUID=$(player_uid ecs0); BUID=$(player_uid ecs1)
 [ -n "$AUID" ] && [ -n "$BUID" ] && ok "player uids resolved (A=$AUID B=$BUID)" || fail "player uids resolved"
 
 echo "[3/8] teleport follow"
-# Teleport A to B's player position — guaranteed walkable in the shared
-# world (fixed coordinates land inside walls on some seeds).
-BPPOS=$(cmd ecs1 state | grep "player:" | grep -o 'pos=([^)]*)' | tr -d 'pos=()')
-TX=$(echo "$BPPOS" | cut -d, -f1); TY=$(echo "$BPPOS" | cut -d, -f2)
+# Teleport A to a generation NPC's position — guaranteed walkable ground
+# inside the level on any seed/mode (players idle in a holding area
+# pre-input; fixed coordinates land inside walls on some seeds).
+sleep 8
+NPCPOS=$(cmd ecs0 npcs | grep "npc\[" | grep "dead=False" | head -1 | grep -o 'pos=([^)]*)' | tr -d 'pos=()')
+TX=$(echo "$NPCPOS" | cut -d, -f1); TY=$(echo "$NPCPOS" | cut -d, -f2)
 cmd ecs0 "tp $AUID $TX $TY" >/dev/null; sleep 6
 BVIEW=$(cmd ecs1 ecs | grep "E2EA" | head -1)
-echo "$BVIEW" | grep -q "pos=(${TX%%.*}" && ok "A's entity followed to B's position (~$TX,$TY)" || fail "A's entity followed to (~$TX,$TY): $BVIEW"
+echo "$BVIEW" | grep -q "pos=(${TX%%.*}" && ok "A's entity followed to (~$TX,$TY)" || fail "A's entity followed to (~$TX,$TY): $BVIEW"
 
 echo "[4/8] health sync"
+AHP_BEFORE=$(cmd ecs0 state | grep "player:" | grep -o 'hp=[0-9.]*' | head -1 | cut -d= -f2)
 cmd ecs0 "hp $AUID -25" >/dev/null; sleep 4
-cmd ecs1 ecs | grep "E2EA" | grep -q "hp=75" && ok "A's hp 75 visible on B" || fail "A's hp 75 visible on B"
+AHP_EXPECT=$(echo "$AHP_BEFORE - 25" | bc)
+cmd ecs1 ecs | grep "E2EA" | grep -q "hp=$AHP_EXPECT" && ok "A's hp $AHP_EXPECT visible on B" || fail "A's hp $AHP_EXPECT visible on B: $(cmd ecs1 ecs | grep E2EA | head -1)"
 
 echo "[5/8] door sync (position addressed)"
 DOOR=$(cmd ecs0 doors | grep "door uid=" | head -1)

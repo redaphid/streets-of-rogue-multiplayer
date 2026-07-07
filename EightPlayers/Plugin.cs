@@ -195,12 +195,30 @@ namespace EightPlayers
     {
         private static void Prefix(LoadLevel __instance)
         {
+            var gc = GameController.gameController;
+            if (gc == null)
+                return;
+
+            // Single-player level loads reuse sessionData.randomListTable when
+            // it is non-empty (RandomSelection.LoadRandomness). A HomeBase ->
+            // level-1 transition can leave a PARTIAL table (early lists only);
+            // loadStuff2 then dies on randomListTable["SyringeContents"] and
+            // the load wedges forever. Clear partial tables so the game
+            // refills them from scratch.
+            if (gc.sessionData != null && gc.sessionData.randomListTable != null
+                && gc.sessionData.randomListTable.Count != 0
+                && !gc.sessionData.randomListTable.ContainsKey("SyringeContents"))
+            {
+                EightPlayersPlugin.Log.LogWarning(
+                    $"sessionData.randomListTable is partial ({gc.sessionData.randomListTable.Count} lists, no SyringeContents) - clearing so LoadRandomness refills");
+                gc.sessionData.randomListTable.Clear();
+                if (gc.sessionData.randomListTableStatic != null)
+                    gc.sessionData.randomListTableStatic.Clear();
+            }
+
             var seed = System.Environment.GetEnvironmentVariable("SOR_SEED")
                        ?? EcsNet.EcsNetManager.AdoptedSeed;
-            if (string.IsNullOrEmpty(seed))
-                return;
-            var gc = GameController.gameController;
-            if (gc == null || gc.sessionDataBig == null)
+            if (string.IsNullOrEmpty(seed) || gc.sessionDataBig == null)
                 return;
             gc.sessionDataBig.userSetSeed = seed;
             EightPlayersPlugin.Log.LogInfo($"Forcing map seed '{seed}' at level load (env or room world)");
