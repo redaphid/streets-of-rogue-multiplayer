@@ -93,7 +93,12 @@ namespace EightPlayers
         public static void Teleport(int uid, Vector2 pos)
         {
             var agent = Require(uid);
+            // Movement.Teleport alone gets reverted for player-controlled
+            // agents; move the physics body and transform along with it.
             agent.movement.Teleport(pos);
+            agent.tr.position = new Vector3(pos.x, pos.y, agent.tr.position.z);
+            if (agent.rigidBody2D != null)
+                agent.rigidBody2D.position = pos;
         }
 
         public static Door FindDoor(int uid)

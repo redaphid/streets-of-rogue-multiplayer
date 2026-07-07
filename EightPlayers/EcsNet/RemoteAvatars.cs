@@ -15,6 +15,7 @@ namespace EightPlayers.EcsNet
         {
             public Agent Agent;
             public Vector2 Target;
+            public string Name;
         }
 
         private readonly Dictionary<int, Avatar> _avatars = new Dictionary<int, Avatar>();
@@ -57,7 +58,7 @@ namespace EightPlayers.EcsNet
                     if (spawned == null)
                         return;
                     Neutralize(spawned, info);
-                    avatar = new Avatar { Agent = spawned };
+                    avatar = new Avatar { Agent = spawned, Name = info.Name };
                     _avatars[e] = avatar;
                     EightPlayersPlugin.Log.LogInfo($"ECSNET avatar spawned for entity {e} ({info.Name} as {type})");
                 }
@@ -82,6 +83,9 @@ namespace EightPlayers.EcsNet
                 var agent = avatar.Agent;
                 if (agent == null || agent.tr == null)
                     continue;
+                // SetupAgent's async init overwrites agentRealName; keep re-asserting ours.
+                if (!string.IsNullOrEmpty(avatar.Name) && agent.agentRealName != avatar.Name)
+                    agent.agentRealName = avatar.Name;
                 Vector2 current = agent.tr.position;
                 var distance = (avatar.Target - current).magnitude;
                 if (distance > 3f)

@@ -49,7 +49,13 @@ namespace EightPlayers.EcsNet
             public bool HpDirty;
             public LevelId SentLevel;
             public string SentChar;
+            public float NextPosKeepalive;
         }
+
+        // pos is volatile in the Durable Object (never persisted), so a DO
+        // restart drops it and a stationary player would never repair it.
+        // Resend pos periodically even without movement.
+        private const float PosKeepaliveSeconds = 5f;
 
         private void Awake()
         {
@@ -297,10 +303,12 @@ namespace EightPlayers.EcsNet
                 }
                 else
                 {
-                    if ((p - lp.LastSent).sqrMagnitude > MinMove * MinMove)
+                    if ((p - lp.LastSent).sqrMagnitude > MinMove * MinMove
+                        || Time.unscaledTime >= lp.NextPosKeepalive)
                     {
                         _client.Send(Protocol.Set(lp.Entity, Protocol.PosComponent(p.x, p.y)));
                         lp.LastSent = p;
+                        lp.NextPosKeepalive = Time.unscaledTime + PosKeepaliveSeconds;
                     }
                     if (lp.HpDirty)
                     {
