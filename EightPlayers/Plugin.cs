@@ -28,6 +28,7 @@ namespace EightPlayers
         internal static ConfigEntry<bool> EcsRealAvatars;
         internal static ConfigEntry<bool> EcsFollowLevel;
         internal static ConfigEntry<bool> EcsNpcSync;
+        internal static ConfigEntry<bool> EcsSuppressDynamicSpawns;
         internal static ConfigEntry<bool> TraceEnabled;
         internal static ManualLogSource Log;
 
@@ -63,6 +64,8 @@ namespace EightPlayers
                 "Automatically take the next-level transition when the room's party has moved ahead, so everyone travels together.");
             EcsNpcSync = Config.Bind("EcsNet", "NpcSync", true,
                 "Mirror NPC positions from the room's NPC authority (lowest client id) so everyone sees the same characters in the same places.");
+            EcsSuppressDynamicSpawns = Config.Bind("EcsNet", "SuppressDynamicSpawns", true,
+                "EXPERIMENTAL: followers cancel game-initiated post-load NPC spawns and rely on the authority's dynamic-npc entities instead. Turn off if NPC-related errors appear.");
 
             TraceEnabled = Config.Bind("Tracing", "Enabled", false,
                 "Write a JSONL behavior trace (traces/trace-*.jsonl in the game dir) of state-mutating game events, used to verify ECS ports keep vanilla behavior. Env override: SOR_TRACE=1/0.");

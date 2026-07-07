@@ -440,13 +440,41 @@ namespace EightPlayers.EcsNet
         internal void SendDespawn(int entity) =>
             _client.Send(Protocol.Despawn(entity));
 
-        /// <summary>Called from the SpawnAgent choke-point hook during level load.</summary>
+        /// <summary>Called from the SpawnAgent choke-point hook.</summary>
         public void RegisterNpcSpawn(Agent agent)
         {
             var gc = GameController.gameController;
-            if (gc == null || gc.loadComplete || agent == null || agent.isPlayer != 0)
+            if (gc == null || agent == null || agent.isPlayer != 0)
                 return;
-            _npcs.Register(agent);
+            if (!gc.loadComplete)
+            {
+                _npcs.Register(agent);
+                return;
+            }
+            // Post-load spawn: if we're the authority, publish it as a
+            // dynamic NPC — unless it's one of our own deliberate spawns
+            // (avatars / remote mirrors), which must stay local.
+            if (_welcomed && _wasNpcAuthority && !NpcSync.BypassSuppression
+                && EightPlayersPlugin.EcsNpcSync.Value)
+            {
+                _npcs.RegisterDynamic(agent);
+                EightPlayersPlugin.Log.LogInfo($"ECSNET dynamic npc registered: {agent.agentName} (uid {agent.UID})");
+            }
+        }
+
+        /// <summary>Followers in a synced world suppress game-initiated dynamic NPC spawns.</summary>
+        public bool ShouldSuppressDynamicSpawn
+        {
+            get
+            {
+                var gc = GameController.gameController;
+                return _welcomed
+                    && !_wasNpcAuthority
+                    && AdoptedSeed != null
+                    && EightPlayersPlugin.EcsNpcSync.Value
+                    && EightPlayersPlugin.EcsSuppressDynamicSpawns.Value
+                    && gc != null && gc.loadComplete;
+            }
         }
 
         /// <summary>Called from the level-generation choke-point hook.</summary>

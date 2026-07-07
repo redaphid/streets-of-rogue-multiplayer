@@ -21,6 +21,16 @@ namespace EightPlayers.EcsNet
         private const float MinMoveSqr = 0.05f * 0.05f;
         private const float PublishInterval = 0.2f;
 
+        /// <summary>Dynamic (post-load) NPCs live in their own index region.</summary>
+        public const int DynBase = 10000;
+
+        /// <summary>
+        /// Scope flag: set while WE spawn agents deliberately (avatars, remote
+        /// applies, command-channel verbs) so the follower-side suppression of
+        /// game-initiated dynamic spawns doesn't eat our own calls.
+        /// </summary>
+        public static bool BypassSuppression;
+
         private sealed class Published
         {
             public int Entity = -1;
@@ -39,6 +49,7 @@ namespace EightPlayers.EcsNet
         }
 
         private readonly List<Agent> _byIndex = new List<Agent>();
+        private readonly List<Agent> _dynAgents = new List<Agent>();
         private readonly Dictionary<Agent, int> _indexByAgent = new Dictionary<Agent, int>();
         private JArray _batch;
         private readonly Dictionary<int, Published> _published = new Dictionary<int, Published>(); // npc idx ->
@@ -49,6 +60,7 @@ namespace EightPlayers.EcsNet
         public void OnLevelGenerated()
         {
             _byIndex.Clear();
+            _dynAgents.Clear();
             _indexByAgent.Clear();
             _published.Clear();
             UnbindAll();
@@ -57,6 +69,7 @@ namespace EightPlayers.EcsNet
         public void Reset()
         {
             _byIndex.Clear();
+            _dynAgents.Clear();
             _indexByAgent.Clear();
             _published.Clear();
             UnbindAll();
@@ -67,6 +80,13 @@ namespace EightPlayers.EcsNet
         {
             _indexByAgent[agent] = _byIndex.Count;
             _byIndex.Add(agent);
+        }
+
+        /// <summary>Authority only: register a post-load (dynamic) NPC spawn.</summary>
+        public void RegisterDynamic(Agent agent)
+        {
+            _indexByAgent[agent] = DynBase + _dynAgents.Count;
+            _dynAgents.Add(agent);
         }
 
         /// <summary>Authority: a registered NPC's health changed (ChangeHealth hook).</summary>
@@ -144,61 +164,66 @@ namespace EightPlayers.EcsNet
             _nextPublishAt = Time.unscaledTime + PublishInterval;
 
             for (int i = 0; i < _byIndex.Count; i++)
-            {
-                var agent = _byIndex[i];
-                _published.TryGetValue(i, out var pub);
+                PublishOne(net, _byIndex[i], i);
+            for (int k = 0; k < _dynAgents.Count; k++)
+                PublishOne(net, _dynAgents[k], DynBase + k);
 
-                if (agent == null)
-                {
-                    if (pub != null && pub.Entity >= 0)
-                        net.SendDespawn(pub.Entity);
-                    if (pub != null)
-                        _published.Remove(i);
-                    continue;
-                }
-
-                if (agent.dead)
-                {
-                    // Keep the entity as a corpse marker; publish death once.
-                    if (pub != null && pub.Entity >= 0 && pub.DeadDirty)
-                    {
-                        net.SendDead(pub.Entity, agent.health, agent.healthMax);
-                        pub.DeadDirty = false;
-                        pub.HpDirty = false;
-                    }
-                    continue;
-                }
-
-                Vector2 p = agent.tr.position;
-                if (pub == null)
-                {
-                    pub = new Published { Tmp = net.SendNpcSpawn(i, agent.agentName, p), LastSent = p };
-                    _published[i] = pub;
-                    continue;
-                }
-                if (pub.Entity < 0)
-                    continue;
-                JObject components = null;
-                if ((p - pub.LastSent).sqrMagnitude > MinMoveSqr)
-                {
-                    components = Protocol.PosComponent(p.x, p.y);
-                    pub.LastSent = p;
-                }
-                if (pub.HpDirty)
-                {
-                    var hp = Protocol.HpComponent(agent.health, agent.healthMax);
-                    if (components == null) components = hp;
-                    else components.Merge(hp);
-                    pub.HpDirty = false;
-                }
-                if (components != null)
-                    (_batch = _batch ?? new JArray()).Add(Protocol.BatchUpdate(pub.Entity, components));
-            }
             if (_batch != null && _batch.Count > 0)
             {
                 net.SendBatch(_batch);
                 _batch = null;
             }
+        }
+
+        private void PublishOne(EcsNetManager net, Agent agent, int i)
+        {
+            _published.TryGetValue(i, out var pub);
+
+            if (agent == null)
+            {
+                if (pub != null && pub.Entity >= 0)
+                    net.SendDespawn(pub.Entity);
+                if (pub != null)
+                    _published.Remove(i);
+                return;
+            }
+
+            if (agent.dead)
+            {
+                // Keep the entity as a corpse marker; publish death once.
+                if (pub != null && pub.Entity >= 0 && pub.DeadDirty)
+                {
+                    net.SendDead(pub.Entity, agent.health, agent.healthMax);
+                    pub.DeadDirty = false;
+                    pub.HpDirty = false;
+                }
+                return;
+            }
+
+            Vector2 p = agent.tr.position;
+            if (pub == null)
+            {
+                pub = new Published { Tmp = net.SendNpcSpawn(i, agent.agentName, p), LastSent = p };
+                _published[i] = pub;
+                return;
+            }
+            if (pub.Entity < 0)
+                return;
+            JObject components = null;
+            if ((p - pub.LastSent).sqrMagnitude > MinMoveSqr)
+            {
+                components = Protocol.PosComponent(p.x, p.y);
+                pub.LastSent = p;
+            }
+            if (pub.HpDirty)
+            {
+                var hp = Protocol.HpComponent(agent.health, agent.healthMax);
+                if (components == null) components = hp;
+                else components.Merge(hp);
+                pub.HpDirty = false;
+            }
+            if (components != null)
+                (_batch = _batch ?? new JArray()).Add(Protocol.BatchUpdate(pub.Entity, components));
         }
 
         /// <summary>Lost authority (someone with a lower id appeared): retract our copies.</summary>
@@ -223,9 +248,37 @@ namespace EightPlayers.EcsNet
 
                 if (!_bound.TryGetValue(e, out var bound))
                 {
-                    if (tag.Index < 0 || tag.Index >= _byIndex.Count)
-                        return;
-                    var agent = _byIndex[tag.Index];
+                    Agent agent;
+                    if (tag.Index >= DynBase)
+                    {
+                        // Dynamic NPC: no local twin exists — spawn a mirror.
+                        if (world.TryGet<DeadTag>(e, out var alreadyDead) && alreadyDead.Value)
+                            return;
+                        try
+                        {
+                            BypassSuppression = true;
+                            agent = GameStateApi.SpawnAgent(
+                                string.IsNullOrEmpty(tag.Type) ? "Hobo" : tag.Type,
+                                new Vector2(pos.X, pos.Y));
+                        }
+                        catch
+                        {
+                            return; // level not ready; retry next tick
+                        }
+                        finally
+                        {
+                            BypassSuppression = false;
+                        }
+                        if (agent == null)
+                            return;
+                        EightPlayersPlugin.Log.LogInfo($"ECSNET dynamic npc mirror spawned ({tag.Type}, entity {e})");
+                    }
+                    else
+                    {
+                        if (tag.Index < 0 || tag.Index >= _byIndex.Count)
+                            return;
+                        agent = _byIndex[tag.Index];
+                    }
                     if (agent == null || agent.dead)
                         return;
                     SetBrain(agent, false);
