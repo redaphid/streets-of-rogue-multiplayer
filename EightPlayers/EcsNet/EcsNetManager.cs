@@ -1,0 +1,355 @@
+using System;
+using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
+using UnityEngine;
+
+namespace EightPlayers.EcsNet
+{
+    // Phase-0 bridge between the running game and a GameRoom Durable Object.
+    // Publishes every local player agent as an entity (player + pos components)
+    // and renders every remote player entity as a named ghost marker in the
+    // world. No Mirror involvement at all — this is the seed of the
+    // ECS-replaces-Mirror netcode, see docs/ecs-netcode.md.
+    public sealed class EcsNetManager : MonoBehaviour
+    {
+        private const float ReconnectDelay = 5f;
+        private const float MinMove = 0.01f;
+
+        private readonly EcsWorld _world = new EcsWorld();
+        private readonly List<LocalPlayer> _locals = new List<LocalPlayer>();
+        private readonly Dictionary<int, Ghost> _ghosts = new Dictionary<int, Ghost>();
+
+        private NetClient _client;
+        private NetState _prevState = NetState.Disconnected;
+        private int _myClientId = -1;
+        private bool _welcomed;
+        private float _nextConnectAt;
+        private float _nextSendAt;
+        private int _nextTmp = 1;
+        private Sprite _ghostSprite;
+
+        private sealed class LocalPlayer
+        {
+            public Agent Agent;
+            public int Entity = -1;
+            public int Tmp = -1;
+            public Vector2 LastSent = new Vector2(float.NaN, float.NaN);
+        }
+
+        private sealed class Ghost
+        {
+            public GameObject Root;
+            public TextMesh Label;
+            public Vector2 Target;
+        }
+
+        private static string ServerUrl =>
+            Environment.GetEnvironmentVariable("SOR_ECS_SERVER") ?? EightPlayersPlugin.EcsServerUrl.Value;
+
+        private static string RoomCode =>
+            (Environment.GetEnvironmentVariable("SOR_ECS_ROOM") ?? EightPlayersPlugin.EcsRoom.Value).Trim().ToUpperInvariant();
+
+        private static string PlayerName =>
+            Environment.GetEnvironmentVariable("SOR_ECS_NAME") ?? EightPlayersPlugin.EcsPlayerName.Value;
+
+        private static bool Enabled => RoomCode.Length > 0;
+
+        private void Update()
+        {
+            if (!Enabled)
+            {
+                if (_client != null) TearDown();
+                return;
+            }
+
+            if (_client == null)
+                _client = new NetClient();
+
+            PumpConnection();
+            if (_client.State != NetState.Connected)
+                return;
+
+            while (_client.TryReceive(out var frame))
+                Apply(ServerMsg.Parse(frame));
+
+            if (_welcomed && Time.unscaledTime >= _nextSendAt)
+            {
+                _nextSendAt = Time.unscaledTime + 1f / Mathf.Max(1, EightPlayersPlugin.EcsSendHz.Value);
+                PublishLocalPlayers();
+            }
+
+            UpdateGhosts();
+        }
+
+        private void OnDestroy() => TearDown();
+
+        private void TearDown()
+        {
+            _client?.Dispose();
+            _client = null;
+            ResetSession();
+        }
+
+        private void ResetSession()
+        {
+            _welcomed = false;
+            _myClientId = -1;
+            _world.Clear();
+            foreach (var ghost in _ghosts.Values)
+                if (ghost.Root != null) Destroy(ghost.Root);
+            _ghosts.Clear();
+            foreach (var lp in _locals)
+            {
+                lp.Entity = -1;
+                lp.Tmp = -1;
+                lp.LastSent = new Vector2(float.NaN, float.NaN);
+            }
+        }
+
+        private void PumpConnection()
+        {
+            var state = _client.State;
+            if (state == NetState.Disconnected && Time.unscaledTime >= _nextConnectAt)
+            {
+                _nextConnectAt = Time.unscaledTime + ReconnectDelay;
+                var url = $"{ServerUrl.TrimEnd('/')}/room/{RoomCode}/ws";
+                EightPlayersPlugin.Log.LogInfo($"ECSNET connecting to {url}");
+                _client.Connect(url);
+            }
+            else if (state == NetState.Connected && _prevState != NetState.Connected)
+            {
+                _client.Send(Protocol.Hello(PlayerName));
+            }
+            else if (state == NetState.Disconnected && _prevState != NetState.Disconnected)
+            {
+                EightPlayersPlugin.Log.LogWarning($"ECSNET disconnected ({_client.LastError})");
+                ResetSession();
+            }
+            _prevState = state;
+        }
+
+        // ---- incoming ----
+
+        private void Apply(ServerMsg msg)
+        {
+            switch (msg.T)
+            {
+                case "welcome":
+                    _myClientId = msg.You;
+                    _welcomed = true;
+                    _world.Clear();
+                    foreach (var rec in msg.Snapshot)
+                    {
+                        var e = (int)rec["e"];
+                        _world.Spawn(e);
+                        _world.Set(e, new Owned { ClientId = (int)rec["owner"] });
+                        ApplyComponents(e, (JObject)rec["components"]);
+                    }
+                    EightPlayersPlugin.Log.LogInfo(
+                        $"ECSNET joined room {msg.Room} as client {msg.You} ({msg.Snapshot.Count} entities, {msg.Peers.Count} peers)");
+                    break;
+
+                case "spawn":
+                    _world.Spawn(msg.Entity);
+                    _world.Set(msg.Entity, new Owned { ClientId = msg.Owner });
+                    ApplyComponents(msg.Entity, msg.Components);
+                    if (msg.Tmp >= 0 && msg.Owner == _myClientId)
+                        foreach (var lp in _locals)
+                            if (lp.Tmp == msg.Tmp)
+                            {
+                                lp.Entity = msg.Entity;
+                                lp.Tmp = -1;
+                            }
+                    break;
+
+                case "set":
+                    ApplyComponents(msg.Entity, msg.Components);
+                    break;
+
+                case "despawn":
+                    _world.Despawn(msg.Entity);
+                    if (_ghosts.TryGetValue(msg.Entity, out var ghost))
+                    {
+                        if (ghost.Root != null) Destroy(ghost.Root);
+                        _ghosts.Remove(msg.Entity);
+                    }
+                    break;
+
+                case "peer":
+                    EightPlayersPlugin.Log.LogInfo($"ECSNET peer {msg.PeerName} {(msg.Joined ? "joined" : "left")}");
+                    break;
+
+                case "error":
+                    EightPlayersPlugin.Log.LogWarning($"ECSNET server error: {msg.Message}");
+                    break;
+            }
+        }
+
+        private void ApplyComponents(int e, JObject components)
+        {
+            if (components == null)
+                return;
+            if (components["pos"] is JObject pos)
+                _world.Set(e, new Pos { X = (float)pos["x"], Y = (float)pos["y"] });
+            if (components["player"] is JObject player)
+                _world.Set(e, new PlayerInfo { Name = (string)player["name"], Color = (int?)player["color"] ?? 0 });
+        }
+
+        // ---- outgoing ----
+
+        private void PublishLocalPlayers()
+        {
+            SyncLocalAgentList();
+
+            for (int i = 0; i < _locals.Count; i++)
+            {
+                var lp = _locals[i];
+                if (lp.Agent == null)
+                {
+                    if (lp.Entity >= 0)
+                        _client.Send(Protocol.Despawn(lp.Entity));
+                    _locals.RemoveAt(i--);
+                    continue;
+                }
+
+                Vector2 p = lp.Agent.tr.position;
+                if (lp.Entity < 0)
+                {
+                    if (lp.Tmp >= 0)
+                        continue; // spawn in flight
+                    lp.Tmp = _nextTmp++;
+                    var name = _locals.Count > 1 ? $"{PlayerName}.{i + 1}" : PlayerName;
+                    _client.Send(Protocol.Spawn(lp.Tmp, Protocol.PlayerComponents(name, i + 1, p.x, p.y)));
+                    lp.LastSent = p;
+                }
+                else if ((p - lp.LastSent).sqrMagnitude > MinMove * MinMove)
+                {
+                    _client.Send(Protocol.Set(lp.Entity, Protocol.PosComponent(p.x, p.y)));
+                    lp.LastSent = p;
+                }
+            }
+        }
+
+        private void SyncLocalAgentList()
+        {
+            var gc = GameController.gameController;
+            if (gc == null || gc.playerAgentList == null)
+                return;
+            foreach (var agent in gc.playerAgentList)
+            {
+                if (agent == null || agent.isPlayer == 0)
+                    continue;
+                bool known = false;
+                foreach (var lp in _locals)
+                    if (ReferenceEquals(lp.Agent, agent))
+                    {
+                        known = true;
+                        break;
+                    }
+                if (!known)
+                    _locals.Add(new LocalPlayer { Agent = agent });
+            }
+        }
+
+        // ---- ghosts ----
+
+        private void UpdateGhosts()
+        {
+            _world.ForEach<PlayerInfo>((e, info) =>
+            {
+                if (_world.TryGet<Owned>(e, out var owned) && owned.ClientId == _myClientId)
+                    return;
+                if (!_world.TryGet<Pos>(e, out var pos))
+                    return;
+
+                if (!_ghosts.TryGetValue(e, out var ghost) || ghost.Root == null)
+                {
+                    ghost = CreateGhost(e, info);
+                    _ghosts[e] = ghost;
+                }
+                ghost.Target = new Vector2(pos.X, pos.Y);
+            });
+
+            foreach (var ghost in _ghosts.Values)
+            {
+                if (ghost.Root == null)
+                    continue;
+                var current = (Vector2)ghost.Root.transform.position;
+                var next = Vector2.Lerp(current, ghost.Target, 12f * Time.unscaledDeltaTime);
+                ghost.Root.transform.position = new Vector3(next.x, next.y, -0.1f);
+            }
+        }
+
+        private Ghost CreateGhost(int e, PlayerInfo info)
+        {
+            var root = new GameObject($"EcsGhost_{e}");
+            DontDestroyOnLoad(root);
+
+            var body = new GameObject("Body");
+            body.transform.SetParent(root.transform, false);
+            var renderer = body.AddComponent<SpriteRenderer>();
+            renderer.sprite = GhostSprite();
+            renderer.color = GhostColor(info.Color);
+            renderer.sortingOrder = 999;
+
+            var labelGo = new GameObject("Label");
+            labelGo.transform.SetParent(root.transform, false);
+            labelGo.transform.localPosition = new Vector3(0f, 0.55f, 0f);
+            labelGo.transform.localScale = Vector3.one * 0.12f;
+            var label = labelGo.AddComponent<TextMesh>();
+            label.text = info.Name ?? $"entity {e}";
+            label.anchor = TextAnchor.LowerCenter;
+            label.alignment = TextAlignment.Center;
+            label.fontSize = 48;
+            label.color = Color.white;
+            labelGo.GetComponent<MeshRenderer>().sortingOrder = 1000;
+
+            return new Ghost { Root = root, Label = label, Target = Vector2.zero };
+        }
+
+        private Sprite GhostSprite()
+        {
+            if (_ghostSprite != null)
+                return _ghostSprite;
+            const int size = 32;
+            var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+            float r = size / 2f - 1f, cx = size / 2f - 0.5f;
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = x - cx, dy = y - cx;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    var a = d < r - 1f ? 0.85f : (d < r ? 0.85f * (r - d) : 0f);
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                }
+            tex.Apply();
+            _ghostSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 48f);
+            return _ghostSprite;
+        }
+
+        private static Color GhostColor(int index)
+        {
+            switch (((index % 8) + 8) % 8)
+            {
+                case 0: return new Color(0.4f, 0.8f, 1f);
+                case 1: return new Color(1f, 0.5f, 0.4f);
+                case 2: return new Color(0.5f, 1f, 0.5f);
+                case 3: return new Color(1f, 0.9f, 0.3f);
+                case 4: return new Color(0.9f, 0.5f, 1f);
+                case 5: return new Color(1f, 0.7f, 0.2f);
+                case 6: return new Color(0.4f, 1f, 0.9f);
+                default: return new Color(0.8f, 0.8f, 0.8f);
+            }
+        }
+
+        private void OnGUI()
+        {
+            if (!Enabled || !EightPlayersPlugin.EcsShowHud.Value || _client == null)
+                return;
+            var status = _client.State == NetState.Connected
+                ? (_welcomed ? $"room {RoomCode} · client {_myClientId} · {_world.Count} entities" : "handshaking")
+                : _client.State.ToString().ToLowerInvariant();
+            GUI.Label(new Rect(8, 8, 640, 22), $"ECSNET {status}");
+        }
+    }
+}

@@ -20,6 +20,11 @@ namespace EightPlayers
         internal static ConfigEntry<string> ZeroTwoMatch;
         internal static ConfigEntry<bool> DebugControllerLog;
         internal static ConfigEntry<bool> ZeroTwoNintendoLabels;
+        internal static ConfigEntry<string> EcsServerUrl;
+        internal static ConfigEntry<string> EcsRoom;
+        internal static ConfigEntry<string> EcsPlayerName;
+        internal static ConfigEntry<int> EcsSendHz;
+        internal static ConfigEntry<bool> EcsShowHud;
         internal static ManualLogSource Log;
 
         private void Awake()
@@ -38,9 +43,21 @@ namespace EightPlayers
             ZeroTwoNintendoLabels = Config.Bind("Controllers", "ZeroTwoNintendoLabels", true,
                 "Bind Zero 2 face buttons by their PRINTED (Nintendo-layout) labels instead of reported Xbox positions.");
 
+            EcsServerUrl = Config.Bind("EcsNet", "ServerUrl", "ws://localhost:8787",
+                "sor-ecs-net worker base URL (ws:// for wrangler dev, wss://<worker>.workers.dev when deployed). Env override: SOR_ECS_SERVER.");
+            EcsRoom = Config.Bind("EcsNet", "Room", "",
+                "Room code to join (letters/digits/dashes). Empty disables the ECS network layer. Env override: SOR_ECS_ROOM.");
+            EcsPlayerName = Config.Bind("EcsNet", "PlayerName", System.Environment.UserName,
+                "Name shown above your ghost on other players' screens. Env override: SOR_ECS_NAME.");
+            EcsSendHz = Config.Bind("EcsNet", "SendHz", 15,
+                new ConfigDescription("Position updates per second sent to the room", new AcceptableValueRange<int>(1, 30)));
+            EcsShowHud = Config.Bind("EcsNet", "ShowHud", true,
+                "Show a one-line ECSNET connection status overlay in the top-left corner.");
+
             var harmony = new Harmony(Guid);
             harmony.PatchAll(Assembly.GetExecutingAssembly());
             JoystickBinding.Init();
+            gameObject.AddComponent<EcsNet.EcsNetManager>();
             Log.LogInfo($"EightPlayers loaded. Player cap: {MaxPlayers.Value}, LAN menu: {ShowLanMenu.Value}");
         }
 

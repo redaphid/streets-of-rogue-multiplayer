@@ -1,0 +1,96 @@
+using Newtonsoft.Json.Linq;
+
+namespace EightPlayers.EcsNet
+{
+    // C# twin of worker/src/protocol.ts — keep the two in sync.
+    // Outgoing messages are built as JObjects; incoming frames are parsed into
+    // a single ServerMsg record with only the fields that message type uses.
+
+    public static class Protocol
+    {
+        public const int Version = 1;
+
+        public static string Hello(string name) =>
+            new JObject { ["t"] = "hello", ["proto"] = Version, ["name"] = name }.ToString(Newtonsoft.Json.Formatting.None);
+
+        public static string Spawn(int tmp, JObject components) =>
+            new JObject { ["t"] = "spawn", ["tmp"] = tmp, ["components"] = components }.ToString(Newtonsoft.Json.Formatting.None);
+
+        public static string Set(int entity, JObject components) =>
+            new JObject { ["t"] = "set", ["e"] = entity, ["components"] = components }.ToString(Newtonsoft.Json.Formatting.None);
+
+        public static string Despawn(int entity) =>
+            new JObject { ["t"] = "despawn", ["e"] = entity }.ToString(Newtonsoft.Json.Formatting.None);
+
+        public static string Ping(long ts) =>
+            new JObject { ["t"] = "ping", ["ts"] = ts }.ToString(Newtonsoft.Json.Formatting.None);
+
+        public static JObject PosComponent(float x, float y) =>
+            new JObject { ["pos"] = new JObject { ["x"] = x, ["y"] = y } };
+
+        public static JObject PlayerComponents(string name, int color, float x, float y) =>
+            new JObject
+            {
+                ["player"] = new JObject { ["name"] = name, ["color"] = color },
+                ["pos"] = new JObject { ["x"] = x, ["y"] = y },
+            };
+    }
+
+    public sealed class ServerMsg
+    {
+        public string T;
+        public int You;           // welcome
+        public string Room;       // welcome
+        public JArray Snapshot;   // welcome
+        public JArray Peers;      // welcome
+        public int Entity;        // spawn/set/despawn
+        public int Owner;         // spawn
+        public int Tmp = -1;      // spawn (only on the owner's copy)
+        public JObject Components; // spawn/set
+        public int PeerId;        // peer
+        public string PeerName;   // peer
+        public bool Joined;       // peer
+        public long Ts;           // pong
+        public string Message;    // error
+
+        public static ServerMsg Parse(string raw)
+        {
+            var jo = JObject.Parse(raw);
+            var msg = new ServerMsg { T = (string)jo["t"] };
+            switch (msg.T)
+            {
+                case "welcome":
+                    msg.You = (int)jo["you"];
+                    msg.Room = (string)jo["room"];
+                    msg.Snapshot = (JArray)jo["snapshot"];
+                    msg.Peers = (JArray)jo["peers"];
+                    break;
+                case "spawn":
+                    msg.Entity = (int)jo["e"];
+                    msg.Owner = (int)jo["owner"];
+                    msg.Components = (JObject)jo["components"];
+                    if (jo["tmp"] != null) msg.Tmp = (int)jo["tmp"];
+                    break;
+                case "set":
+                    msg.Entity = (int)jo["e"];
+                    msg.Components = (JObject)jo["components"];
+                    break;
+                case "despawn":
+                    msg.Entity = (int)jo["e"];
+                    break;
+                case "peer":
+                    msg.PeerId = (int)jo["id"];
+                    msg.PeerName = (string)jo["name"];
+                    msg.Joined = (bool)jo["joined"];
+                    break;
+                case "pong":
+                    msg.Ts = (long)jo["ts"];
+                    break;
+                case "error":
+                    msg.Message = (string)jo["message"];
+                    break;
+            }
+            return msg;
+        }
+    }
+}

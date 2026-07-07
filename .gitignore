@@ -8,3 +8,7 @@ obj/
 
 # Generated artifacts
 outputs/
+
+# Cloudflare worker
+worker/node_modules/
+worker/.wrangler/
