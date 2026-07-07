@@ -51,3 +51,18 @@ One JSON object per line: `{ts, cat, ev, ...}` where `ts` is
 - `net/call` {hub, method, args[]} (every Cmd/Rpc body invocation)
 
 Tooling: `node scripts/test/trace_summary.mjs <trace.jsonl>`.
+
+## Write side: programmatic state manipulation
+
+`GameStateApi` (EightPlayers/GameStateApi.cs) mutates live state through the
+same choke points, so every programmatic mutation shows up in the trace —
+tests inject a mutation and assert on the emitted events. Exposed over the
+live command channel (`BepInEx/ep_cmd.txt` → `ep_out.txt`):
+
+```
+state · agents · spawnagent <type> <x> <y> · hp <uid> <delta> · kill <uid>
+give <uid> <item> [count] · drop <uid> <item> · tp <uid> <x> <y> · opendoor <uid>
+```
+
+The ECS apply-path uses the same API: remote component changes become local
+game mutations through one audited surface.

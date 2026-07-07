@@ -21,6 +21,18 @@ namespace EightPlayers
     //   remap                         re-run the Zero 2 auto-layout from scratch
     //   nintendo <on|off>             flip printed-label mode and remap
     //   enable <category> <on|off>    enable/disable a joystick map category for p0
+    //
+    // Game-state manipulation (GameStateApi; every mutation shows up in the
+    // SOR_TRACE behavior trace, which is how tests assert on it):
+    //   state                         level/seed/agent summary
+    //   agents                        list live agents (uid, type, pos, hp)
+    //   spawnagent <type> <x> <y>     spawn an NPC (e.g. spawnagent Thief 10 12)
+    //   hp <uid> <delta>              change health (negative damages)
+    //   kill <uid>                    kill an agent
+    //   give <uid> <item> [count]     add inventory item
+    //   drop <uid> <item>             drop inventory item
+    //   tp <uid> <x> <y>              teleport an agent
+    //   opendoor <uid>                open a door by UID
     internal static class CommandChannel
     {
         private static float next;
@@ -78,9 +90,49 @@ namespace EightPlayers
                     Out($"nintendo labels {parts[1]}, remapping");
                     break;
                 case "enable": Enable(parts[1], parts[2] == "on"); break;
+                case "state": Out(GameStateApi.Summary()); break;
+                case "agents":
+                    foreach (var agent in GameStateApi.Agents())
+                        Out("  " + GameStateApi.DescribeAgent(agent));
+                    break;
+                case "spawnagent":
+                {
+                    var spawned = GameStateApi.SpawnAgent(parts[1], ParseVec(parts[2], parts[3]));
+                    Out($"spawned {GameStateApi.DescribeAgent(spawned)}");
+                    break;
+                }
+                case "hp":
+                {
+                    var hp = GameStateApi.ChangeHealth(int.Parse(parts[1]), float.Parse(parts[2]));
+                    Out($"agent {parts[1]} health now {hp:0.#}");
+                    break;
+                }
+                case "kill":
+                    GameStateApi.Kill(int.Parse(parts[1]));
+                    Out($"agent {parts[1]} killed");
+                    break;
+                case "give":
+                    GameStateApi.GiveItem(int.Parse(parts[1]), parts[2], parts.Length > 3 ? int.Parse(parts[3]) : 1);
+                    Out($"gave {parts[2]} to agent {parts[1]}");
+                    break;
+                case "drop":
+                    GameStateApi.DropItem(int.Parse(parts[1]), parts[2]);
+                    Out($"agent {parts[1]} dropped {parts[2]}");
+                    break;
+                case "tp":
+                    GameStateApi.Teleport(int.Parse(parts[1]), ParseVec(parts[2], parts[3]));
+                    Out($"agent {parts[1]} teleported to {parts[2]},{parts[3]}");
+                    break;
+                case "opendoor":
+                    GameStateApi.OpenDoor(int.Parse(parts[1]));
+                    Out($"door {parts[1]} opened");
+                    break;
                 default: Out("unknown command"); break;
             }
         }
+
+        private static Vector2 ParseVec(string x, string y) =>
+            new Vector2(float.Parse(x), float.Parse(y));
 
         private static Player P0 => ReInput.players.GetPlayer(0);
 
