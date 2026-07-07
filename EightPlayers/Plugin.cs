@@ -25,6 +25,7 @@ namespace EightPlayers
         internal static ConfigEntry<string> EcsPlayerName;
         internal static ConfigEntry<int> EcsSendHz;
         internal static ConfigEntry<bool> EcsShowHud;
+        internal static ConfigEntry<bool> TraceEnabled;
         internal static ManualLogSource Log;
 
         private void Awake()
@@ -54,8 +55,13 @@ namespace EightPlayers
             EcsShowHud = Config.Bind("EcsNet", "ShowHud", true,
                 "Show a one-line ECSNET connection status overlay in the top-left corner.");
 
+            TraceEnabled = Config.Bind("Tracing", "Enabled", false,
+                "Write a JSONL behavior trace (traces/trace-*.jsonl in the game dir) of state-mutating game events, used to verify ECS ports keep vanilla behavior. Env override: SOR_TRACE=1/0.");
+
+            Tracing.Trace.Init();
             var harmony = new Harmony(Guid);
             harmony.PatchAll(Assembly.GetExecutingAssembly());
+            Tracing.NetTrace.Install(harmony);
             JoystickBinding.Init();
             gameObject.AddComponent<EcsNet.EcsNetManager>();
             Log.LogInfo($"EightPlayers loaded. Player cap: {MaxPlayers.Value}, LAN menu: {ShowLanMenu.Value}");
@@ -67,6 +73,12 @@ namespace EightPlayers
             ZeroTwoMapping.Tick();
             ControllerDebug.Tick();
             CommandChannel.Tick();
+            Tracing.Trace.Tick();
+        }
+
+        private void OnApplicationQuit()
+        {
+            Tracing.Trace.Shutdown();
         }
     }
 
