@@ -265,6 +265,25 @@ local player, who can't act mid-load.
   e2e-asserted; the assertion turns silent divergence into a loud early
   failure and the heal makes real sessions self-correct.
 
+## Container looting (`chest-take` event)  *(added 2026-07-08)*
+
+- Choke: `ObjectMult.TakeItemFromChest(ObjectReal, string)` — vanilla's
+  OWN wire entry for "an item left this container" (shelves, chests,
+  safes). Its body is a no-op outside Mirror games, which makes it a
+  perfect pure-signal hook in ECS/solo mode. Publishes for LOCAL players
+  only (`agent.localPlayer`).
+- Wire: `chest-take {wi?, x, y, name, item}` — container addressed by
+  wlayout index with position+type fallback (containers are ObjectReals,
+  so they're in the layout).
+- Apply mirrors vanilla's `RpcTakeItemFromChest` receiver:
+  `objectInvDatabase.FindItem(item)` → `DestroyItem`. Already-gone items
+  no-op (cross-published NPC takes, double loots).
+- Debug verbs: `containers` (nearest, with item counts),
+  `chestgive <x> <y> <item>`, `chesttake <x> <y> <item>` (runs the real
+  wire entry), `chestitems <x> <y>`.
+- e2e: [6b] both sides seed the same container with a Banana; A takes it;
+  B's copy loses it.
+
 ## Equipped weapon (`weapon` component)  *(added 2026-07-08)*
 
 - Choke: `InvDatabase.EquipWeapon(InvItem, bool)` master (the 1-arg

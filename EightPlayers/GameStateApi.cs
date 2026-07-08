@@ -281,6 +281,55 @@ namespace EightPlayers
             obj.DestroyMe(null);
         }
 
+        /// <summary>Objects with their own inventory (shelves, chests, safes...).</summary>
+        public static IEnumerable<ObjectReal> Containers()
+        {
+            foreach (var obj in Objects())
+                if (obj.objectInvDatabase != null && obj.tr != null)
+                    yield return obj;
+        }
+
+        public static ObjectReal FindContainerAt(Vector2 pos, float tolerance = 0.75f)
+        {
+            ObjectReal best = null;
+            float bestSqr = tolerance * tolerance;
+            foreach (var c in Containers())
+            {
+                float d = ((Vector2)c.tr.position - pos).sqrMagnitude;
+                if (d <= bestSqr)
+                {
+                    best = c;
+                    bestSqr = d;
+                }
+            }
+            return best;
+        }
+
+        public static void ChestGive(Vector2 pos, string itemName)
+        {
+            var chest = FindContainerAt(pos);
+            if (chest == null)
+                throw new ArgumentException($"no container near ({pos.x:0.#},{pos.y:0.#})");
+            if (chest.objectInvDatabase.AddItem(itemName, 1) == null)
+                throw new ArgumentException($"item '{itemName}' not created");
+        }
+
+        /// <summary>Take an item out of a container through the same wire
+        /// entry vanilla uses (ObjectMult.TakeItemFromChest — a no-op body in
+        /// solo, but the ECS hook publishes from it).</summary>
+        public static void ChestTake(Vector2 pos, string itemName)
+        {
+            var chest = FindContainerAt(pos);
+            if (chest == null)
+                throw new ArgumentException($"no container near ({pos.x:0.#},{pos.y:0.#})");
+            var item = chest.objectInvDatabase.FindItem(itemName);
+            if (item == null)
+                throw new ArgumentException($"container has no '{itemName}'");
+            var gc = GC;
+            gc.playerAgent.objectMult.TakeItemFromChest(chest, itemName);
+            chest.objectInvDatabase.DestroyItem(item);
+        }
+
         public static IEnumerable<Fire> Fires()
         {
             var gc = GC;

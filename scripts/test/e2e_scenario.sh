@@ -161,6 +161,19 @@ cmd ecs1 "tp $BUID $BX $BY" >/dev/null; sleep 3
 cmd ecs1 "pickup $BUID $BX $BY Banana" >/dev/null
 waitlog ecs0 "taken by peer" 30 && ok "banana picked up by B, consumed on A" || fail "banana pickup propagated"
 
+echo "[6b] container loot sync"
+CPOS=$(cmd ecs0 containers | grep 'container uid=' | head -1 | grep -o 'pos=([^)]*)' | tr -d 'pos=()')
+if [ -z "$CPOS" ]; then
+  fail "found a container on A"
+else
+  CX=$(echo "$CPOS" | cut -d, -f1); CY=$(echo "$CPOS" | cut -d, -f2)
+  ok "found container at ($CX,$CY) on A"
+  cmd ecs0 "chestgive $CX $CY Banana" >/dev/null
+  cmd ecs1 "chestgive $CX $CY Banana" >/dev/null
+  cmd ecs0 "chesttake $CX $CY Banana" >/dev/null
+  waitlog ecs1 "chest item 'Banana' taken by peer" 30 && ok "B's container lost the Banana" || fail "B's container lost the Banana"
+fi
+
 echo "[7/8] NPC sync: convergence + death"
 sleep 10
 NPC=$(cmd ecs0 npcs | grep "npc\[" | grep "dead=False" | grep -v "entity=-1" | head -1)

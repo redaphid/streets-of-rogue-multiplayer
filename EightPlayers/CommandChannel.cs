@@ -207,6 +207,38 @@ namespace EightPlayers
                     GameStateApi.DestroyObject(int.Parse(parts[1]));
                     Out($"object {parts[1]} destroyed");
                     break;
+                case "containers":
+                {
+                    var gc = GameController.gameController;
+                    UnityEngine.Vector2 origin = gc?.playerAgent != null ? (UnityEngine.Vector2)gc.playerAgent.tr.position : UnityEngine.Vector2.zero;
+                    var cs = new List<ObjectReal>(GameStateApi.Containers());
+                    cs.Sort((a, b) =>
+                        ((UnityEngine.Vector2)a.tr.position - origin).sqrMagnitude
+                        .CompareTo(((UnityEngine.Vector2)b.tr.position - origin).sqrMagnitude));
+                    for (int i = 0; i < cs.Count && i < 10; i++)
+                    {
+                        UnityEngine.Vector2 p = cs[i].tr.position;
+                        Out($"  container uid={cs[i].UID} '{cs[i].objectName}' pos=({p.x:0.#},{p.y:0.#}) items={cs[i].objectInvDatabase.InvItemList.Count}");
+                    }
+                    break;
+                }
+                case "chestgive":
+                    GameStateApi.ChestGive(ParseVec(parts[1], parts[2]), parts[3]);
+                    Out($"container at {parts[1]},{parts[2]} given {parts[3]}");
+                    break;
+                case "chesttake":
+                    GameStateApi.ChestTake(ParseVec(parts[1], parts[2]), parts[3]);
+                    Out($"took {parts[3]} from container at {parts[1]},{parts[2]}");
+                    break;
+                case "chestitems":
+                {
+                    var chest = GameStateApi.FindContainerAt(ParseVec(parts[1], parts[2]));
+                    if (chest == null) { Out("no container there"); break; }
+                    foreach (var it in chest.objectInvDatabase.InvItemList)
+                        Out($"  item '{it?.invItemName}' x{it?.invItemCount}");
+                    Out($"container '{chest.objectName}': {chest.objectInvDatabase.InvItemList.Count} item(s)");
+                    break;
+                }
                 case "fires":
                 {
                     int n = 0;

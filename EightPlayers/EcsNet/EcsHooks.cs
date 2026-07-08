@@ -221,6 +221,21 @@ namespace EightPlayers.EcsNet
         }
     }
 
+    // Container looting: ObjectMult.TakeItemFromChest is vanilla's own wire
+    // entry for "an item left this container" (its body is a no-op outside
+    // Mirror games). Publish for LOCAL players; the remote apply removes
+    // items directly from the container's InvDatabase, so no echo.
+    [HarmonyPatch(typeof(ObjectMult), "TakeItemFromChest", typeof(ObjectReal), typeof(string))]
+    internal static class EcsChestTakeHook_Patch
+    {
+        private static void Postfix(ObjectMult __instance, ObjectReal myChest, string itemName)
+        {
+            var agent = __instance.agent;
+            if (agent != null && agent.localPlayer && myChest != null)
+                EcsNetManager.Instance?.OnLocalChestTake(myChest, itemName);
+        }
+    }
+
     // Publish weapon equips by LOCAL players (avatars equip through the same
     // method but aren't local players, so no echo loop).
     [HarmonyPatch(typeof(InvDatabase), "EquipWeapon", typeof(InvItem), typeof(bool))]

@@ -566,6 +566,38 @@ namespace EightPlayers.EcsNet
                     return;
                 }
 
+                case "chest-take":
+                {
+                    var x = (float?)msg.EventData?["x"];
+                    var y = (float?)msg.EventData?["y"];
+                    var name = (string)msg.EventData?["name"];
+                    var itemName = (string)msg.EventData?["item"];
+                    if (x == null || y == null || string.IsNullOrEmpty(itemName))
+                        return;
+                    var chest = ResolveWobj(msg.EventData) as ObjectReal
+                        ?? GameStateApi.FindObjectAt(new Vector2(x.Value, y.Value), name);
+                    if (chest == null || chest.objectInvDatabase == null)
+                    {
+                        EightPlayersPlugin.Log.LogWarning(
+                            $"ECSNET chest-take from peer {msg.From}: no container '{name}' at ({x:0.#},{y:0.#}) locally");
+                        return;
+                    }
+                    try
+                    {
+                        // Mirror of vanilla's RpcTakeItemFromChest receiver.
+                        var invItem = chest.objectInvDatabase.FindItem(itemName);
+                        if (invItem != null)
+                            chest.objectInvDatabase.DestroyItem(invItem);
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET chest item '{itemName}' taken by peer {msg.From} ({name} at ({x:0.#},{y:0.#}){(invItem == null ? ", already gone" : "")})");
+                    }
+                    catch (Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning($"ECSNET chest-take apply failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    return;
+                }
+
                 case "pvp-hit":
                 {
                     // Damage aimed at MY player's avatar elsewhere: I am the
@@ -873,6 +905,16 @@ namespace EightPlayers.EcsNet
             Vector2 p = obj.tr.position;
             _client.Send(Protocol.Event("obj-destroy", WithWobjEntity(obj,
                 new JObject { ["x"] = p.x, ["y"] = p.y, ["name"] = obj.objectName })));
+        }
+
+        /// <summary>Called from the TakeItemFromChest hook (EcsHooks).</summary>
+        public void OnLocalChestTake(ObjectReal chest, string itemName)
+        {
+            if (!_welcomed || chest == null || chest.tr == null || string.IsNullOrEmpty(itemName) || !WorldStable)
+                return;
+            Vector2 p = chest.tr.position;
+            _client.Send(Protocol.Event("chest-take", WithWobjEntity(chest,
+                new JObject { ["x"] = p.x, ["y"] = p.y, ["name"] = chest.objectName, ["item"] = itemName })));
         }
 
         /// <summary>Called from the Door.Lock/Unlock hooks (EcsHooks).</summary>
