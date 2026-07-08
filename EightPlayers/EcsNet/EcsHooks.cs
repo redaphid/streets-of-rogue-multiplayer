@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
+using UnityEngine;
 
 namespace EightPlayers.EcsNet
 {
@@ -99,9 +100,15 @@ namespace EightPlayers.EcsNet
         // game-initiated post-load NPC spawns — the authority's copy arrives
         // as a dynamic npc entity instead. Callers receiving null is the risk
         // under test; BypassSuppression exempts our own deliberate spawns.
-        private static bool Prefix(ref Agent __result, int playerColor)
+        private static bool Prefix(ref Agent __result, int playerColor, string agentType)
         {
             if (NpcSync.BypassSuppression || playerColor != 0)
+                return true;
+            // Pseudo-agents are local simulation helpers (fire's ObjectAgent,
+            // etc.), never synced as NPCs — suppressing them null-crashes
+            // their callers (Fire.SpawnObjectAgent derefs the result).
+            // Mirror of the RegisterNpcSpawn exclusion.
+            if (agentType == "ObjectAgent")
                 return true;
             var manager = EcsNetManager.Instance;
             if (manager == null || !manager.ShouldSuppressDynamicSpawn)
@@ -211,6 +218,39 @@ namespace EightPlayers.EcsNet
         {
             if (!__state && __instance.destroying && !EcsNetManager.ApplyingRemoteObject)
                 EcsNetManager.Instance?.OnLocalObjectDestroyed(__instance);
+        }
+    }
+
+    // Publish new fires from the 8-arg SpawnFire master. A non-null result
+    // means it actually spawned (the master dedups by position/burning
+    // object and returns null otherwise). neverGoOut fires are skipped:
+    // those come from generation emitters (flame grates, fire spewers) that
+    // both instances simulate identically already.
+    [HarmonyPatch(typeof(SpawnerMain), "SpawnFire",
+        typeof(PlayfieldObject), typeof(GameObject), typeof(Vector3), typeof(bool), typeof(bool), typeof(int), typeof(bool), typeof(bool))]
+    internal static class EcsFireSpawnHook_Patch
+    {
+        private static void Postfix(Fire __result, bool oilFire, bool neverGoOut)
+        {
+            if (__result != null && !neverGoOut && !EcsNetManager.ApplyingRemoteFire)
+                EcsNetManager.Instance?.OnLocalFireSpawned(__result, oilFire);
+        }
+    }
+
+    // Publish extinguish/burn-out from Fire.DestroyMe's destroying edge.
+    // Level transitions mass-destroy fires — never publish those.
+    [HarmonyPatch(typeof(Fire), "DestroyMe", new System.Type[0])]
+    internal static class EcsFireOutHook_Patch
+    {
+        private static void Prefix(Fire __instance, ref bool __state) =>
+            __state = __instance.destroying;
+
+        private static void Postfix(Fire __instance, bool __state)
+        {
+            var gc = GameController.gameController;
+            if (!__state && __instance.destroying && !EcsNetManager.ApplyingRemoteFire
+                && gc != null && !gc.levelTransitioning)
+                EcsNetManager.Instance?.OnLocalFireOut(__instance);
         }
     }
 }

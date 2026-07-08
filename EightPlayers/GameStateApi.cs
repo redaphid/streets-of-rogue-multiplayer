@@ -265,6 +265,50 @@ namespace EightPlayers
             obj.DestroyMe(null);
         }
 
+        public static IEnumerable<Fire> Fires()
+        {
+            var gc = GC;
+            if (gc == null)
+                yield break;
+            foreach (var fire in gc.firesList)
+                if (fire != null)
+                    yield return fire;
+        }
+
+        public static Fire FindFireAt(Vector2 pos, float tolerance = 0.35f)
+        {
+            Fire best = null;
+            float bestSqr = tolerance * tolerance;
+            foreach (var fire in Fires())
+            {
+                if (fire.tr == null || fire.destroying)
+                    continue;
+                float d = ((Vector2)fire.tr.position - pos).sqrMagnitude;
+                if (d <= bestSqr)
+                {
+                    best = fire;
+                    bestSqr = d;
+                }
+            }
+            return best;
+        }
+
+        public static Fire Ignite(Vector2 pos, bool oil = false)
+        {
+            var gc = GC;
+            if (gc == null || gc.spawnerMain == null)
+                throw new InvalidOperationException("no game running");
+            return gc.spawnerMain.SpawnFire(null, new Vector3(pos.x, pos.y, 0f), oil);
+        }
+
+        public static void Extinguish(Vector2 pos)
+        {
+            var fire = FindFireAt(pos, 0.75f);
+            if (fire == null)
+                throw new ArgumentException($"no fire near ({pos.x:0.#},{pos.y:0.#})");
+            fire.DestroyMe();
+        }
+
         public static void OpenDoor(int uid, Agent byAgent = null)
         {
             var door = FindDoor(uid);

@@ -180,6 +180,55 @@ Conventions used by every system:
 - e2e: [5b] A destroys the nearest object; B's twin (same name, same
   position) is destroyed by the event.
 
+## Fire (`fire-spawn` / `fire-out` events)  *(added 2026-07-08)*
+
+- Chokes: `SpawnerMain.SpawnFire(...)` 8-arg master (all 7 thinner
+  overloads funnel in) and `Fire.DestroyMe()` — the single teardown that
+  water, extinguishers and burn-out all reach.
+- Publish (spawn): postfix fires only when the master returned non-null
+  (it dedups by exact position / burning object and returns null on a
+  duplicate). `neverGoOut` fires are NOT published: those belong to
+  generation emitters (flame grates, fire spewers) that both instances
+  already simulate identically — publishing them would be pure churn.
+- Publish (out): `destroying` false→true edge (prefix/postfix state pair),
+  suppressed during `levelTransitioning` (mass teardown is not gameplay)
+  and under `ApplyingRemoteFire`.
+- Wire: `fire-spawn {x, y, oil}`, `fire-out {x, y}`.
+- Apply: vanilla's spawn dedup uses EXACT float equality, which will not
+  match a twin fire that local spread simulation already created at a
+  wire-rounded coordinate — so the apply first checks
+  `GameStateApi.FindFireAt(pos)` (tolerance 0.35) and skips if anything
+  burns there. Both instances run their own spread simulation; the
+  cross-published events converge the two toward the union. Burn-out
+  publishes from both sides; the apply skips missing/already-destroying
+  fires.
+- Fire DAMAGE to agents/objects is not separately synced: player hp is
+  owner-authoritative (`hp` component), NPC hp comes from the NPC
+  authority, and object destruction has its own event.
+- Found by the red→green TDD cycle (first green run still failed):
+  every ground fire spawns an invisible "ObjectAgent" helper via
+  `Fire.SpawnObjectAgent` → `SpawnAgent`, and the follower-side dynamic
+  NPC spawn suppression nulled it → NPE inside `SpawnObjectAgent`, a
+  half-initialized fire, and an immediate bogus `fire-out` echo that
+  killed the ORIGINAL fire on the igniting instance. Fix: the suppression
+  prefix passes `agentType == "ObjectAgent"` through — mirroring the
+  pseudo-agent exclusion the publish side (`RegisterNpcSpawn`) already
+  had. Any follower fire (flame grate, molotov, spread) would have hit
+  this, not just synced ones.
+- e2e: [12/12] ignite propagates, extinguish propagates.
+
+## Publish window (all world-object events)
+
+`fire-spawn/out`, `obj-destroy` and `door-lock` only publish while
+`gc.loadComplete && !gc.levelTransitioning` (`WorldStable`). Level
+GENERATION mutates world objects (setup re-locks doors, clears props) and
+teardown destroys everything — that state is seed-derived and every
+instance produces it locally; publishing it spams peers mid-load with
+positions they can't resolve yet (seen live as
+`door-lock ... no door there locally` warnings during [8/8] travel).
+`door-open` keeps its agent filter instead: it only ever publishes for a
+local player, who can't act mid-load.
+
 ## Known non-determinism (accepted)
 
 - NPC clothing/loadout CONTENTS diverge between instances (RNG consumption
@@ -195,11 +244,12 @@ Live command channel (`BepInEx/ep_cmd.txt` → `ep_out.txt`), superset of
 the GameStateApi verbs. Sync-relevant commands:
 
 ```
-state · ecs · npcs · agents · doors · objects · items
+state · ecs · npcs · agents · doors · objects · items · fires
 hp <uid> <±delta> · kill <uid> · status <uid> <effect> [off] · statuses <uid>
 give <uid> <item> [n] · drop <uid> <item> · pickup <uid> <x> <y> <item>
 tp <uid> <x> <y> · opendoor <duid> [uid] · lockdoor <duid> [off]
-destroyobj <ouid> · spawnagent <type> <x> <y> · nextlevel
+destroyobj <ouid> · ignite <x> <y> · extinguish <x> <y>
+spawnagent <type> <x> <y> · nextlevel
 room <code> · leave · screenshot [file.png]
 ```
 

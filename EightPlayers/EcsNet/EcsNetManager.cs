@@ -479,6 +479,64 @@ namespace EightPlayers.EcsNet
                     return;
                 }
 
+                case "fire-spawn":
+                {
+                    var x = (float?)msg.EventData?["x"];
+                    var y = (float?)msg.EventData?["y"];
+                    var oil = (bool?)msg.EventData?["oil"] ?? false;
+                    if (x == null || y == null)
+                        return;
+                    var pos = new Vector2(x.Value, y.Value);
+                    // Vanilla dedups by EXACT position; float drift across the
+                    // wire needs a tolerance check against local twins (both
+                    // sides simulate spread, so near-duplicates are common).
+                    if (GameStateApi.FindFireAt(pos) != null)
+                        return;
+                    try
+                    {
+                        ApplyingRemoteFire = true;
+                        GameStateApi.Ignite(pos, oil);
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET fire at ({x:0.#},{y:0.#}) ignited by peer {msg.From}");
+                    }
+                    catch (Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning($"ECSNET fire-spawn apply failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        ApplyingRemoteFire = false;
+                    }
+                    return;
+                }
+
+                case "fire-out":
+                {
+                    var x = (float?)msg.EventData?["x"];
+                    var y = (float?)msg.EventData?["y"];
+                    if (x == null || y == null)
+                        return;
+                    var fire = GameStateApi.FindFireAt(new Vector2(x.Value, y.Value));
+                    if (fire == null || fire.destroying)
+                        return; // already out locally (burn-out publishes from both sides)
+                    try
+                    {
+                        ApplyingRemoteFire = true;
+                        fire.DestroyMe();
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET fire at ({x:0.#},{y:0.#}) put out by peer {msg.From}");
+                    }
+                    catch (Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning($"ECSNET fire-out apply failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        ApplyingRemoteFire = false;
+                    }
+                    return;
+                }
+
                 case "pvp-hit":
                 {
                     // Damage aimed at MY player's avatar elsewhere: I am the
@@ -684,10 +742,45 @@ namespace EightPlayers.EcsNet
         /// <summary>Same suppression for the ObjectReal.DestroyMe hook.</summary>
         public static bool ApplyingRemoteObject;
 
+        /// <summary>Same suppression for the SpawnFire / Fire.DestroyMe hooks.</summary>
+        public static bool ApplyingRemoteFire;
+
+        // World-object events only publish while the level is fully loaded:
+        // generation and teardown mutate objects (setup locks doors, clears
+        // props...) but that state is seed-derived — every instance produces
+        // it locally, and peers mid-load can't resolve the positions anyway.
+        private static bool WorldStable
+        {
+            get
+            {
+                var gc = GameController.gameController;
+                return gc != null && gc.loadComplete && !gc.levelTransitioning;
+            }
+        }
+
+        /// <summary>Called from the SpawnFire hook (EcsHooks).</summary>
+        public void OnLocalFireSpawned(Fire fire, bool oil)
+        {
+            if (!_welcomed || fire == null || fire.tr == null || !WorldStable)
+                return;
+            Vector2 p = fire.tr.position;
+            _client.Send(Protocol.Event("fire-spawn",
+                new JObject { ["x"] = p.x, ["y"] = p.y, ["oil"] = oil }));
+        }
+
+        /// <summary>Called from the Fire.DestroyMe hook (EcsHooks).</summary>
+        public void OnLocalFireOut(Fire fire)
+        {
+            if (!_welcomed || fire == null || fire.tr == null || !WorldStable)
+                return;
+            Vector2 p = fire.tr.position;
+            _client.Send(Protocol.Event("fire-out", new JObject { ["x"] = p.x, ["y"] = p.y }));
+        }
+
         /// <summary>Called from the ObjectReal.DestroyMe hook (EcsHooks).</summary>
         public void OnLocalObjectDestroyed(ObjectReal obj)
         {
-            if (!_welcomed || obj == null || obj.tr == null)
+            if (!_welcomed || obj == null || obj.tr == null || !WorldStable)
                 return;
             Vector2 p = obj.tr.position;
             _client.Send(Protocol.Event("obj-destroy",
@@ -697,7 +790,7 @@ namespace EightPlayers.EcsNet
         /// <summary>Called from the Door.Lock/Unlock hooks (EcsHooks).</summary>
         public void OnLocalDoorLock(Door door, bool locked)
         {
-            if (!_welcomed || door == null || door.tr == null)
+            if (!_welcomed || door == null || door.tr == null || !WorldStable)
                 return;
             Vector2 p = door.tr.position;
             _client.Send(Protocol.Event("door-lock",

@@ -71,6 +71,9 @@ Ported so far (per-system detail: [ecs-systems.md](ecs-systems.md)):
   Lock/Unlock chokes, flag-suppressed echo, position-addressed apply.
 - **Object destruction** (2026-07-08): `obj-destroy {x, y, name}` from
   `ObjectReal.DestroyMe` (destroying-flag edge), idempotent apply.
+- **Fire** (2026-07-08): `fire-spawn {x, y, oil}` / `fire-out {x, y}` from
+  the SpawnFire master and Fire.DestroyMe; tolerance-deduped apply, emitter
+  (`neverGoOut`) fires excluded, level-transition teardown never published.
 
 ## Future client note
 

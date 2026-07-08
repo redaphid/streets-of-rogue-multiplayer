@@ -186,6 +186,15 @@ cmd ecs1 "agents" | grep "'E2EA'" >/dev/null   # avatar still alive sanity
 cmd ecs0 "status $AUID Fast off" >/dev/null
 waitlog ecs1 "status 'Fast' off applied" 30 && ok "A's Fast removal applied to avatar on B" || fail "A's Fast removal applied to avatar on B"
 
+echo "[12/12] fire ignite + extinguish"
+APOS=$(cmd ecs0 state | grep "player:" | grep -o 'pos=([^)]*)' | tr -d 'pos=()')
+FX=$(echo "$(echo "$APOS" | cut -d, -f1) + 2" | bc); FY=$(echo "$APOS" | cut -d, -f2)
+cmd ecs0 "ignite $FX $FY" >/dev/null
+waitlog ecs1 "ignited by peer" 30 && ok "fire at ($FX,$FY) ignited on B" || fail "fire at ($FX,$FY) ignited on B"
+sleep 2
+cmd ecs0 "extinguish $FX $FY" >/dev/null
+waitlog ecs1 "put out by peer" 30 && ok "fire extinguished on B" || fail "fire extinguished on B"
+
 echo
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

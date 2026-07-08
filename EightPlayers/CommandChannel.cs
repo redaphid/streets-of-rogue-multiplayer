@@ -190,6 +190,27 @@ namespace EightPlayers
                     GameStateApi.DestroyObject(int.Parse(parts[1]));
                     Out($"object {parts[1]} destroyed");
                     break;
+                case "fires":
+                {
+                    int n = 0;
+                    foreach (var fire in GameStateApi.Fires())
+                    {
+                        if (fire.tr == null) continue;
+                        UnityEngine.Vector2 p = fire.tr.position;
+                        Out($"  fire pos=({p.x:0.#},{p.y:0.#}) destroying={fire.destroying}");
+                        if (++n >= 15) break;
+                    }
+                    Out($"fires: {n} shown");
+                    break;
+                }
+                case "ignite":
+                    GameStateApi.Ignite(ParseVec(parts[1], parts[2]));
+                    Out($"fire ignited at {parts[1]},{parts[2]}");
+                    break;
+                case "extinguish":
+                    GameStateApi.Extinguish(ParseVec(parts[1], parts[2]));
+                    Out($"fire extinguished at {parts[1]},{parts[2]}");
+                    break;
                 case "doors":
                 {
                     var gc = GameController.gameController;

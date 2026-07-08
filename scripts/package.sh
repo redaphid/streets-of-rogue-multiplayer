@@ -4,8 +4,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-DLL=EightPlayers/bin/Debug/net472/EightPlayers.dll
+DLL=EightPlayers/bin/Release/net472/EightPlayers.dll
+[ -f "$DLL" ] || DLL=EightPlayers/bin/Debug/net472/EightPlayers.dll
 [ -f "$DLL" ] || { echo "build EightPlayers first"; exit 1; }
+echo "packaging $DLL"
 
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
