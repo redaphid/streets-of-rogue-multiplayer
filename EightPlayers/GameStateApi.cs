@@ -309,6 +309,54 @@ namespace EightPlayers
             fire.DestroyMe();
         }
 
+        private static uint _worldHash;
+        private static int _worldHashSeed, _worldHashLevel;
+
+        /// <summary>Every level (re)generation must drop the cache — a heal
+        /// reload regenerates DIFFERENT geometry under the SAME (seed, num) key.</summary>
+        public static void InvalidateWorldHash() => _worldHash = 0;
+
+        /// <summary>
+        /// Order-independent fingerprint of the level's door geometry
+        /// (doors anchor the generated structure). Two instances that built
+        /// the same world from the same seed get the same hash; frame-timing
+        /// RNG divergence during generation changes it. 0 = level not loaded.
+        /// Cached per (seed, level).
+        /// </summary>
+        public static uint WorldHash()
+        {
+            var gc = GC;
+            // loadCompleteReally: set by every load path incl. solo follow
+            // reloads; plain loadComplete is Mirror-era and can stay false.
+            if (gc == null || gc.loadLevel == null || gc.sessionDataBig == null || !gc.loadCompleteReally)
+                return 0;
+            int seed = gc.loadLevel.randomSeedNum, num = gc.sessionDataBig.curLevel;
+            if (_worldHash != 0 && seed == _worldHashSeed && num == _worldHashLevel)
+                return _worldHash;
+            // FNV-1a over each door's quantized position+type, XOR-combined
+            // so enumeration order doesn't matter.
+            uint combined = 2166136261u;
+            int count = 0;
+            foreach (var door in Doors())
+            {
+                if (door.tr == null)
+                    continue;
+                Vector2 p = door.tr.position;
+                uint h = 2166136261u;
+                foreach (char c in $"{door.doorType}@{Mathf.RoundToInt(p.x * 10)}:{Mathf.RoundToInt(p.y * 10)}")
+                    h = (h ^ c) * 16777619u;
+                combined ^= h;
+                count++;
+            }
+            combined = (combined ^ (uint)count) * 16777619u;
+            if (combined == 0)
+                combined = 1; // 0 is reserved for "not loaded"
+            _worldHash = combined;
+            _worldHashSeed = seed;
+            _worldHashLevel = num;
+            return combined;
+        }
+
         public static void OpenDoor(int uid, Agent byAgent = null)
         {
             var door = FindDoor(uid);

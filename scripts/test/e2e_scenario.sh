@@ -84,6 +84,21 @@ waitlog ecs1 "avatar spawned" 240 && ok "B spawned avatar for A" || fail "B spaw
 AUID=$(player_uid ecs0); BUID=$(player_uid ecs1)
 [ -n "$AUID" ] && [ -n "$BUID" ] && ok "player uids resolved (A=$AUID B=$BUID)" || fail "player uids resolved"
 
+echo "[2b] world geometry hash converges (divergence detector + heal)"
+# Same-seed generation occasionally diverges (frame-timing RNG); the mod
+# detects it via level.hash and the follower reloads. Allow one heal cycle.
+CONV=1
+for _ in $(seq 1 30); do
+  HA=$(cmd ecs0 worldhash | grep -o 'worldhash [0-9a-f]*' | cut -d' ' -f2)
+  HB=$(cmd ecs1 worldhash | grep -o 'worldhash [0-9a-f]*' | cut -d' ' -f2)
+  [ -n "$HA" ] && [ "$HA" = "$HB" ] && CONV=0 && break
+  sleep 3
+done
+[ "$CONV" -eq 0 ] && ok "world hashes converged (A=$HA B=$HB)" || fail "world hashes converged (A=$HA B=$HB)"
+# B may have reloaded to heal - refresh its uid and wait for avatars again
+BUID=$(player_uid ecs1)
+waitlog ecs1 "avatar spawned" 60
+
 echo "[3/8] teleport follow"
 # Teleport A to a generation NPC's position — guaranteed walkable ground
 # inside the level on any seed/mode (players idle in a holding area
@@ -180,6 +195,7 @@ else
 fi
 
 echo "[11/11] status effect sync"
+AUID=$(player_uid ecs0)   # re-resolve: the player agent gets a new uid per level in solo mode
 cmd ecs0 "status $AUID Fast" >/dev/null
 waitlog ecs1 "status 'Fast' on applied" 30 && ok "A's Fast status applied to avatar on B" || fail "A's Fast status applied to avatar on B"
 cmd ecs1 "agents" | grep "'E2EA'" >/dev/null   # avatar still alive sanity

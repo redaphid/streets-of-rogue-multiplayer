@@ -211,6 +211,31 @@ namespace EightPlayers
                     GameStateApi.Extinguish(ParseVec(parts[1], parts[2]));
                     Out($"fire extinguished at {parts[1]},{parts[2]}");
                     break;
+                case "worldhash":
+                {
+                    var gc = GameController.gameController;
+                    Out($"worldhash {GameStateApi.WorldHash():x8} seed={gc?.loadLevel?.randomSeedNum} level={gc?.sessionDataBig?.curLevel}");
+                    break;
+                }
+                case "move":
+                    VirtualInput.Move(ParseVec(parts[1], parts[2]), parts.Length > 3 ? float.Parse(parts[3]) : 1f);
+                    Out($"moving ({parts[1]},{parts[2]}) for {(parts.Length > 3 ? parts[3] : "1")}s");
+                    break;
+                case "walkto":
+                    VirtualInput.WalkTo(ParseVec(parts[1], parts[2]), parts.Length > 3 ? float.Parse(parts[3]) : 15f);
+                    Out($"walking to ({parts[1]},{parts[2]})");
+                    break;
+                case "hold":
+                    VirtualInput.Hold(parts[1], parts.Length > 2 ? float.Parse(parts[2]) : 0.5f);
+                    Out($"holding {parts[1]}");
+                    break;
+                case "stop":
+                    VirtualInput.Stop();
+                    Out("virtual input cleared");
+                    break;
+                case "input":
+                    Out(VirtualInput.Describe());
+                    break;
                 case "doors":
                 {
                     var gc = GameController.gameController;

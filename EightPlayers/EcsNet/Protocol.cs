@@ -46,8 +46,8 @@ namespace EightPlayers.EcsNet
         public static JObject HpComponent(float cur, float max) =>
             new JObject { ["hp"] = new JObject { ["cur"] = cur, ["max"] = max } };
 
-        public static JObject LevelComponent(int seed, int num) =>
-            new JObject { ["level"] = new JObject { ["seed"] = seed, ["num"] = num } };
+        public static JObject LevelComponent(int seed, int num, uint hash) =>
+            new JObject { ["level"] = new JObject { ["seed"] = seed, ["num"] = num, ["hash"] = hash } };
 
         public static JObject DeadComponent() =>
             new JObject { ["dead"] = new JObject { ["v"] = true } };

@@ -220,7 +220,11 @@ Conventions used by every system:
 ## Publish window (all world-object events)
 
 `fire-spawn/out`, `obj-destroy` and `door-lock` only publish while
-`gc.loadComplete && !gc.levelTransitioning` (`WorldStable`). Level
+`gc.loadCompleteReally && !gc.levelTransitioning` (`WorldStable`).
+**Flag choice matters**: `loadComplete` is a Mirror-era flag that stays
+FALSE after a solo-mode follow reload (observed live — it silently killed
+every gated publisher, the world hash, and the heal on followers);
+`loadCompleteReally` is set by every load path. Level
 GENERATION mutates world objects (setup re-locks doors, clears props) and
 teardown destroys everything — that state is seed-derived and every
 instance produces it locally; publishing it spams peers mid-load with
@@ -228,6 +232,38 @@ positions they can't resolve yet (seen live as
 `door-lock ... no door there locally` warnings during [8/8] travel).
 `door-open` keeps its agent filter instead: it only ever publishes for a
 local player, who can't act mid-load.
+
+## World divergence detection + healing (`level.hash`)  *(added 2026-07-08)*
+
+- Problem (observed live in a solo-mode gate run): same string seed, same
+  numeric seed, same object COUNT — but different object placement (one
+  instance had a Table where the other had a FlamingBarrel). Level
+  generation has frame-timing-dependent RNG consumption that usually only
+  shifts NPC loadouts but can occasionally shift geometry. When it does,
+  every position-addressed system (doors, objects, ground items) silently
+  breaks in both directions while entity-based sync (pos, hp, NPC index)
+  keeps working — the worst failure mode, because it looks half-alive.
+- Detection: `GameStateApi.WorldHash()` — order-independent FNV-1a over
+  every door's `type@x:y` (positions quantized to 0.1) XOR-combined, mixed
+  with the door count. Cached per (seed, num);
+  `InvalidateWorldHash()` runs on every level generation because a heal
+  reload regenerates different geometry under the same cache key. 0 is
+  reserved for "not loaded".
+- Wire: the `level` component grows a `hash` field —
+  `level {seed, num, hash}`. Publishers refresh the component whenever
+  seed, num, hash, or character changes.
+- Healing: `HealWorldDivergence()` (each publish tick): if any LOWER
+  client id publishes the same seed+num with a different non-zero hash,
+  the lower id's world wins; we step `sessionDataBig.curLevel` back one
+  and let the existing `FollowRoomLevel` replay the vanilla transition
+  (which re-forces the seed and regenerates). Bounds: 45 s cooldown, max
+  2 attempts per (seed, num) — after that an ERROR logs that positional
+  sync is degraded. The lowest client never heals (nobody outranks it).
+- Debug: `worldhash` command prints `worldhash <hex> seed=<n> level=<n>`.
+- e2e: [2b] asserts A's and B's hashes are equal after boot. The heal
+  path itself triggers on a flaky condition, so it is not directly
+  e2e-asserted; the assertion turns silent divergence into a loud early
+  failure and the heal makes real sessions self-correct.
 
 ## Known non-determinism (accepted)
 

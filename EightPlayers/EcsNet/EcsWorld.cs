@@ -36,6 +36,8 @@ namespace EightPlayers.EcsNet
     {
         public int Seed;
         public int Num;
+        /// <summary>Door-geometry fingerprint; 0 = unknown/not loaded.</summary>
+        public uint Hash;
     }
 
     /// <summary>Marks an entity as a mirrored NPC; Index is its level spawn order.</summary>

@@ -705,6 +705,7 @@ namespace EightPlayers.EcsNet
         /// <summary>Called from the level-generation choke-point hook.</summary>
         public void OnLevelGenerated()
         {
+            GameStateApi.InvalidateWorldHash();
             _npcs.OnLevelGenerated();
         }
 
@@ -749,12 +750,15 @@ namespace EightPlayers.EcsNet
         // generation and teardown mutate objects (setup locks doors, clears
         // props...) but that state is seed-derived — every instance produces
         // it locally, and peers mid-load can't resolve the positions anyway.
+        // loadCompleteReally, NOT loadComplete: the latter is a Mirror-era
+        // flag that stays false after a solo-mode follow reload (observed
+        // live), which silently killed every gated publisher on followers.
         private static bool WorldStable
         {
             get
             {
                 var gc = GameController.gameController;
-                return gc != null && gc.loadComplete && !gc.levelTransitioning;
+                return gc != null && gc.loadCompleteReally && !gc.levelTransitioning;
             }
         }
 
@@ -813,7 +817,12 @@ namespace EightPlayers.EcsNet
             if (components["hp"] is JObject hp)
                 _world.Set(e, new Hp { Cur = (float?)hp["cur"] ?? 0, Max = (float?)hp["max"] ?? 0 });
             if (components["level"] is JObject level)
-                _world.Set(e, new LevelId { Seed = (int?)level["seed"] ?? 0, Num = (int?)level["num"] ?? 0 });
+                _world.Set(e, new LevelId
+                {
+                    Seed = (int?)level["seed"] ?? 0,
+                    Num = (int?)level["num"] ?? 0,
+                    Hash = (uint?)level["hash"] ?? 0,
+                });
             if (components["npc"] is JObject npc)
                 _world.Set(e, new NpcTag { Index = (int?)npc["i"] ?? -1, Type = (string)npc["type"] });
             if (components["dead"] is JObject)
@@ -861,6 +870,7 @@ namespace EightPlayers.EcsNet
         {
             SyncLocalAgentList();
             ClaimWorldSeedIfFirst();
+            HealWorldDivergence();
             FollowRoomLevel();
 
             for (int i = 0; i < _locals.Count; i++)
@@ -883,7 +893,7 @@ namespace EightPlayers.EcsNet
                     var name = _locals.Count > 1 ? $"{PlayerName}.{i + 1}" : PlayerName;
                     var components = Protocol.PlayerComponents(name, i + 1, lp.Agent.agentName, p.x, p.y, lp.Agent.health, lp.Agent.healthMax);
                     var here = LocalLevel();
-                    components.Merge(Protocol.LevelComponent(here.Seed, here.Num));
+                    components.Merge(Protocol.LevelComponent(here.Seed, here.Num, here.Hash));
                     _client.Send(Protocol.Spawn(lp.Tmp, components));
                     lp.LastSent = p;
                     lp.HpDirty = false;
@@ -908,11 +918,12 @@ namespace EightPlayers.EcsNet
                     // finished, elevator taken, char picked/transformed):
                     // refresh the slow-changing components.
                     var now = LocalLevel();
-                    if (now.Seed != lp.SentLevel.Seed || now.Num != lp.SentLevel.Num || lp.Agent.agentName != lp.SentChar)
+                    if (now.Seed != lp.SentLevel.Seed || now.Num != lp.SentLevel.Num
+                        || now.Hash != lp.SentLevel.Hash || lp.Agent.agentName != lp.SentChar)
                     {
                         var name = _locals.Count > 1 ? $"{PlayerName}.{i + 1}" : PlayerName;
                         var refresh = Protocol.PlayerComponents(name, i + 1, lp.Agent.agentName, p.x, p.y, lp.Agent.health, lp.Agent.healthMax);
-                        refresh.Merge(Protocol.LevelComponent(now.Seed, now.Num));
+                        refresh.Merge(Protocol.LevelComponent(now.Seed, now.Num, now.Hash));
                         _client.Send(Protocol.Set(lp.Entity, refresh));
                         lp.SentLevel = now;
                         lp.SentChar = lp.Agent.agentName;
@@ -968,7 +979,72 @@ namespace EightPlayers.EcsNet
             {
                 Seed = gc != null && gc.loadLevel != null ? gc.loadLevel.randomSeedNum : 0,
                 Num = gc != null && gc.sessionDataBig != null ? gc.sessionDataBig.curLevel : 0,
+                Hash = GameStateApi.WorldHash(),
             };
+        }
+
+        // ---- world divergence healing -----------------------------------
+        //
+        // Same seed + same level number SHOULD give identical geometry, but
+        // level generation has frame-timing-dependent RNG consumption that
+        // occasionally shifts object placement (observed live 2026-07-08:
+        // one instance had a Table where the other had a FlamingBarrel; all
+        // positional sync silently broke). The level component carries a
+        // door-geometry hash; if a LOWER client id shares our seed+num with
+        // a different hash, their world wins and we regenerate ours by
+        // stepping curLevel back and letting FollowRoomLevel re-run the
+        // vanilla next-level path (which re-forces the seed). Bounded so a
+        // genuinely irreconcilable pair can't reload forever.
+
+        private int _healSeed, _healNum, _healCount;
+        private float _nextHealAt;
+
+        private void HealWorldDivergence()
+        {
+            var gc = GameController.gameController;
+            if (gc == null || gc.sessionDataBig == null || !gc.loadCompleteReally || gc.levelTransitioning)
+                return;
+            if (Time.unscaledTime < _nextHealAt)
+                return;
+            var mine = LocalLevel();
+            if (mine.Hash == 0)
+                return;
+            bool diverged = false;
+            int authorityClient = int.MaxValue;
+            _world.ForEach<LevelId>((e, lvl) =>
+            {
+                if (!_world.TryGet<Owned>(e, out var owned) || owned.ClientId == _myClientId)
+                    return;
+                if (!_world.TryGet<PlayerInfo>(e, out _))
+                    return; // only players carry authoritative level hashes
+                if (owned.ClientId < _myClientId && owned.ClientId < authorityClient
+                    && lvl.Seed == mine.Seed && lvl.Num == mine.Num && lvl.Hash != 0)
+                {
+                    authorityClient = owned.ClientId;
+                    diverged = lvl.Hash != mine.Hash;
+                }
+            });
+            if (!diverged)
+                return;
+            _nextHealAt = Time.unscaledTime + 45f;
+            if (_healSeed != mine.Seed || _healNum != mine.Num)
+            {
+                _healSeed = mine.Seed;
+                _healNum = mine.Num;
+                _healCount = 0;
+            }
+            if (_healCount >= 2)
+            {
+                EightPlayersPlugin.Log.LogError(
+                    $"ECSNET world diverged from client {authorityClient} (hash {mine.Hash:x8}) and 2 reloads did not converge - positional sync degraded");
+                return;
+            }
+            _healCount++;
+            EightPlayersPlugin.Log.LogWarning(
+                $"ECSNET world diverged from client {authorityClient} on level {mine.Num} (my hash {mine.Hash:x8}) - regenerating (attempt {_healCount}/2)");
+            // Step back one level; FollowRoomLevel's next tick replays the
+            // vanilla transition into the room's level with the forced seed.
+            gc.sessionDataBig.curLevel -= 1;
         }
 
         private void UpdateGhosts()
