@@ -3,7 +3,14 @@ import type { Components, EntityRecord } from './protocol'
 // Components whose updates are broadcast but never written to storage.
 // High-frequency state (positions) lives only in memory; after a hibernation
 // wake-up it is stale for at most one client tick.
-const VOLATILE = new Set(['pos'])
+const VOLATILE = new Set(['pos', 'input'])
+
+// Components any client may write on any entity. `input` is the control
+// plane: an intent (walk target, held axes/buttons) written onto a player
+// entity by anyone and consumed by the owning client's input system. Shared
+// components are also volatile — an intent must never outlive the room's
+// in-memory state and replay after hibernation.
+const SHARED = new Set(['input'])
 
 export interface Entity {
   owner: number
@@ -37,10 +44,12 @@ export class RoomWorld {
     if (next > this.nextId) this.nextId = next
   }
 
-  /** Merge component writes. Returns false if the entity is missing or not owned by `by`. */
+  /** Merge component writes. Returns false if the entity is missing, or if any
+   * non-shared component is written by someone other than the owner. */
   set(by: number, e: number, components: Components): boolean {
     const ent = this.entities.get(e)
-    if (!ent || ent.owner !== by) return false
+    if (!ent) return false
+    if (ent.owner !== by && !Object.keys(components).every((k) => SHARED.has(k))) return false
     Object.assign(ent.components, components)
     return true
   }

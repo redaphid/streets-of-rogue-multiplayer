@@ -67,6 +67,11 @@ trap cleanup EXIT
 echo "e2e scenario in room $ROOM (mode=$MODE)"
 curl -sf -m 3 http://127.0.0.1:8787/ >/dev/null || { echo "wrangler dev not running"; exit 2; }
 pgrep -f 'StreetsOfRogue[L]inux' >/dev/null && { echo "game instances already running"; exit 2; }
+# The clones run inside the Steam flatpak and share its app data. Launching
+# them while the real Steam client is up crash-loops the client's web helper
+# (shared CEF htmlcache/locks) — refuse to fight it.
+pgrep -f '/app/bin/steam' >/dev/null && {
+  echo "ABORT: the Steam client is running. Close it (or: flatpak kill com.valvesoftware.Steam) before running e2e."; exit 2; }
 rm -f "$CL"/ecs0/BepInEx/LogOutput.log "$CL"/ecs1/BepInEx/LogOutput.log \
       "$CL"/ecs0/BepInEx/ep_out.txt "$CL"/ecs1/BepInEx/ep_out.txt
 
@@ -283,6 +288,42 @@ GOBJ=$(cmd ecs0 objects | grep 'object uid=' | grep 'destroying=False' | head -1
 GUID=$(echo "$GOBJ" | grep -o 'uid=[0-9]*' | cut -d= -f2)
 cmd ecs0 "spawngas $GUID Flammable" >/dev/null
 waitlog ecs1 "gas 'Flammable' spawned by peer" 30 && ok "gas cloud appeared on B" || fail "gas cloud appeared on B"
+
+echo "[14/14] ECS control plane: input intent component drives the player"
+# Re-resolve A's CURRENT player entity (a new one is spawned per level).
+AENT=""
+for _ in $(seq 1 15); do
+  AENT=$(cmd ecs0 ecs | grep 'local agent' | grep -o 'entity=[0-9]*' | head -1 | cut -d= -f2)
+  [ -n "$AENT" ] && [ "$AENT" != "-1" ] && break
+  sleep 2
+done
+# Everything below runs on B: read A's pos from B's mirror, write the intent
+# onto A's entity (B does NOT own it — exercises the shared-component rule).
+ecspos() { cmd ecs1 "ecsget $1" | grep -oE '"pos":\{"x":-?[0-9.]+,"y":-?[0-9.]+\}' | grep -oE '\-?[0-9.]+' | tr '\n' ' '; }
+read -r AX AY _ <<< "$(ecspos "$AENT")"
+TX=$(echo "$AX + 4" | bc); TY=$AY
+cmd ecs1 "ecsset $AENT {\"input\":{\"tx\":$TX,\"ty\":$TY}}" >/dev/null
+MOVED=1; D=0
+for _ in $(seq 1 20); do
+  read -r PX PY _ <<< "$(ecspos "$AENT")"
+  [ -n "${PX:-}" ] && D=$(echo "d=($PX-$AX)^2+($PY-$AY)^2; scale=2; sqrt(d)" | bc -l) && \
+    [ "$(echo "$D > 2" | bc -l)" = "1" ] && { MOVED=0; break; }
+  sleep 1
+done
+[ "$MOVED" -eq 0 ] && ok "A's player moved under B's ECS input intent ($D units)" \
+                   || fail "A's player moved under B's ECS input intent (from $AX,$AY)"
+cmd ecs1 "ecsset $AENT {\"input\":null}" >/dev/null   # clear the intent
+
+echo "[14b] ECS inspection: statuses readable as fx component"
+AUID=$(player_uid ecs0)
+cmd ecs0 "status $AUID Fast" >/dev/null
+FXOK=1
+for _ in $(seq 1 10); do
+  cmd ecs1 "ecsget $AENT" | grep -q '"fx":.*"Fast"' && { FXOK=0; break; }
+  sleep 2
+done
+[ "$FXOK" -eq 0 ] && ok "Fast status visible in fx component on B" || fail "Fast status visible in fx component on B"
+cmd ecs0 "status $AUID Fast off" >/dev/null
 
 echo
 echo "RESULT: $PASS passed, $FAIL failed"

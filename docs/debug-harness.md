@@ -178,3 +178,9 @@ deploy → run (green). The deployed-dll-vs-repo gap makes red runs honest.
   pattern kills your shell — use `pkill -f 'StreetsOfRogue[L]inux'`.
 - Flatpak: run the game inside the sandbox (host glibc too old for
   doorstop); paths under `~/.var/app/com.valvesoftware.Steam/`.
+- **Never launch test instances while the real Steam client is running.**
+  The clones share the Steam flatpak's app data; a running client
+  crash-loops its web helper (`Failed creating offscreen shared JS
+  context`, breakpad dumps) and registers the headless clones as running
+  copies of the game. `e2e_scenario.sh` aborts if `/app/bin/steam` is up —
+  close Steam first (`flatpak kill com.valvesoftware.Steam`).

@@ -62,4 +62,24 @@ describe('RoomWorld', () => {
       player: { name: 'n' },
     })
   })
+
+  it('input is a shared component: any client may write it on any entity', () => {
+    const w = new RoomWorld()
+    const e = w.spawn(1, { player: { name: 'a' }, pos: { x: 0, y: 0 } })
+    expect(w.set(2, e, { input: { tx: 5, ty: 6 } })).toBe(true)
+    expect(w.get(e)?.components.input).toEqual({ tx: 5, ty: 6 })
+  })
+
+  it('a write mixing input with owned components is still rejected for non-owners', () => {
+    const w = new RoomWorld()
+    const e = w.spawn(1, { pos: { x: 0, y: 0 } })
+    expect(w.set(2, e, { input: { tx: 5, ty: 6 }, pos: { x: 9, y: 9 } })).toBe(false)
+    expect(w.get(e)?.components.pos).toEqual({ x: 0, y: 0 })
+    expect(w.get(e)?.components.input).toBeUndefined()
+  })
+
+  it('input is volatile: broadcast but never persisted', () => {
+    expect(RoomWorld.isVolatile('input')).toBe(true)
+    expect(RoomWorld.persistable({ input: { tx: 1, ty: 2 } })).toEqual({})
+  })
 })
