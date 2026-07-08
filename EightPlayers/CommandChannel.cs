@@ -350,6 +350,10 @@ namespace EightPlayers
                     GameController.gameController.loadLevel.NextLevel();
                     Out("next level triggered");
                     break;
+                case "reloadlevel":
+                    LoadWatchdog.ForceReload();
+                    Out("level reload forced (watchdog path)");
+                    break;
                 case "items":
                 {
                     var gc = GameController.gameController;

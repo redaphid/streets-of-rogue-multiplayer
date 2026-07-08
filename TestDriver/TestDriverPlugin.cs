@@ -23,6 +23,14 @@ namespace SorTestDriver
         private string mode, addr, port, playerName, reportPath;
         private string state = "boot";
         private float nextAttempt, nextReport, started;
+
+        /// <summary>EightPlayers' room-adopted world seed, via reflection
+        /// (the driver deliberately has no hard reference to the mod).</summary>
+        private static string AdoptedSeed()
+        {
+            var t = Type.GetType("EightPlayers.EcsNet.EcsNetManager, EightPlayers");
+            return t?.GetProperty("AdoptedSeed")?.GetValue(null) as string;
+        }
         private int exceptionCount;
 
         private void Awake()
@@ -74,7 +82,24 @@ namespace SorTestDriver
             {
                 case "boot":
                     if (now - started > 12f)
+                    {
+                        // In an ECS room, wait for the room's world seed
+                        // BEFORE starting the game: starting first generates
+                        // a throwaway world, forces a follow reload, and that
+                        // reload window has repeatedly wedged loads. The
+                        // claimer never adopts a seed — its timeout starts it
+                        // (and it then claims). 30s cap.
+                        bool inRoom = !string.IsNullOrEmpty(
+                            Environment.GetEnvironmentVariable("SOR_ECS_ROOM"));
+                        if (inRoom && mode == "solo" && now - started < 42f
+                            && AdoptedSeed() == null)
+                        {
+                            return;
+                        }
+                        if (inRoom && mode == "solo" && AdoptedSeed() != null)
+                            Report("adopted-seed-before-start");
                         state = mode == "solo" ? "start-solo" : "open-lan";
+                    }
                     break;
 
                 case "start-solo":

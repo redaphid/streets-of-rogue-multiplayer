@@ -87,6 +87,7 @@ namespace EightPlayers
             ZeroTwoMapping.Tick();
             ControllerDebug.Tick();
             CommandChannel.Tick();
+            LoadWatchdog.Tick();
             Tracing.Trace.Tick();
         }
 
