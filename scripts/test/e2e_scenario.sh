@@ -105,10 +105,12 @@ cmd ecs0 "ecsset $AENT {\"probe\":{\"v\":42}}" >/dev/null
 sleep 3
 cmd ecs1 "ecsget $AENT" | grep -q '"v":42' && ok "probe component visible on B (entity $AENT)" || fail "probe component visible on B (entity $AENT)"
 
-echo "[2d] world-object entities: published by authority, mapped on both"
-WA=$(cmd ecs0 entities | grep -c '"wobj"'); WB=$(cmd ecs1 entities | grep -c '"wobj"')
-[ "${WA:-0}" -gt 100 ] && [ "$WA" = "$WB" ] && ok "wobj entities on both (A=$WA B=$WB)" || fail "wobj entities on both (A=$WA B=$WB)"
-waitlog ecs0 "wobj reconcile" 30 && waitlog ecs1 "wobj reconcile" 30 && ok "both instances reconciled wobj map" || fail "both instances reconciled wobj map"
+echo "[2d] world-object layout: published by authority, reconciled on both"
+WA=$(cmd ecs0 entities | grep -c '"wlayout"'); WB=$(cmd ecs1 entities | grep -c '"wlayout"')
+[ "${WA:-0}" -ge 1 ] && [ "$WA" = "$WB" ] && ok "wlayout entity on both (A=$WA B=$WB)" || fail "wlayout entity on both (A=$WA B=$WB)"
+MA=$(grep -a 'wobj reconcile' "$(log ecs0)" | tail -1 | grep -o 'matched=[0-9]*' | cut -d= -f2)
+MB=$(grep -a 'wobj reconcile' "$(log ecs1)" | tail -1 | grep -o 'matched=[0-9]*' | cut -d= -f2)
+[ -n "$MA" ] && [ "${MA:-0}" -gt 100 ] && [ "$MA" = "$MB" ] && ok "both reconciled the same layout (matched=$MA)" || fail "both reconciled the same layout (A=$MA B=$MB)"
 
 echo "[3/8] teleport follow"
 # Teleport A to a generation NPC's position — guaranteed walkable ground

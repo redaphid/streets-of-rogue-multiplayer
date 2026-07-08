@@ -4,28 +4,30 @@ using UnityEngine;
 
 namespace EightPlayers.EcsNet
 {
-    // World objects (doors + destructible ObjectReals) as room entities.
+    // The level's world-object layout (doors + destructible ObjectReals) as
+    // ONE room entity: `wlayout {lv, objs: [{k, t, x, y}, ...]}` published by
+    // the NPC-authority client after load. A single entity keeps the publish
+    // to one message + one ack — an earlier per-object design (~300 spawns)
+    // perturbed the game's own level loading — and gives the future JS client
+    // the whole map in one read.
     //
-    // The NPC-authority client (lowest id) publishes one `wobj
-    // {kind, type, x, y, lv}` entity per object after level load; the DO
-    // persists them and fans them out (the publisher receives its own
-    // spawns back like everyone else). Every client then RECONCILES:
-    // match each wobj to its local twin by kind/type + nearest position and
-    // keep entity<->object maps, so events can address world objects by
-    // entity id — immune to the generation drift that position addressing
-    // suffers from. v1 reconciles by matching only: missing/extra local
+    // Every client (the publisher included, via its own spawn echo) then
+    // RECONCILES: match each layout record to its local twin by kind/type +
+    // nearest position, keeping index<->object maps so events can address
+    // world objects by layout INDEX — immune to the generation drift that
+    // position addressing suffers from. v1 matches only: missing/extra local
     // objects are counted and logged, not spawned/removed.
     internal sealed class WorldObjects
     {
         private readonly EcsWorld _world;
         private readonly EcsNetManager _mgr;
 
-        private readonly Dictionary<int, PlayfieldObject> _byEntity = new Dictionary<int, PlayfieldObject>();
+        private readonly Dictionary<int, PlayfieldObject> _byIndex = new Dictionary<int, PlayfieldObject>();
         private readonly Dictionary<PlayfieldObject, int> _byObject = new Dictionary<PlayfieldObject, int>();
 
         private int _publishedLv = int.MinValue;
-        private int _reconciledCount = -1;
         private int _reconciledLv = int.MinValue;
+        private int _reconciledCount = -1;
         private float _nextTick;
 
         internal WorldObjects(EcsWorld world, EcsNetManager mgr)
@@ -34,15 +36,15 @@ namespace EightPlayers.EcsNet
             _mgr = mgr;
         }
 
-        internal PlayfieldObject ObjectFor(int entity) =>
-            _byEntity.TryGetValue(entity, out var o) && o != null ? o : null;
+        internal PlayfieldObject ObjectAt(int index) =>
+            _byIndex.TryGetValue(index, out var o) && o != null ? o : null;
 
-        internal int EntityFor(PlayfieldObject obj) =>
-            obj != null && _byObject.TryGetValue(obj, out var e) ? e : -1;
+        internal int IndexFor(PlayfieldObject obj) =>
+            obj != null && _byObject.TryGetValue(obj, out var i) ? i : -1;
 
         internal void OnLevelChanged()
         {
-            _byEntity.Clear();
+            _byIndex.Clear();
             _byObject.Clear();
             _reconciledCount = -1;
         }
@@ -60,82 +62,82 @@ namespace EightPlayers.EcsNet
                 Publish(level);
             }
 
-            // Reconcile whenever the visible wobj set changed (spawn burst
-            // arriving, level advance, authority migration republished...).
-            int seen = 0;
-            _world.ForEach<WObj>((e, w) => { if (w.Lv == level) seen++; });
-            if (seen > 0 && (seen != _reconciledCount || _reconciledLv != level))
+            // Reconcile when a layout for my level is visible and changed.
+            var objs = FindLayout(level, out _);
+            if (objs != null && (objs.Count != _reconciledCount || _reconciledLv != level))
             {
-                _reconciledCount = seen;
                 _reconciledLv = level;
-                Reconcile(level);
+                _reconciledCount = objs.Count;
+                Reconcile(level, objs);
             }
+        }
+
+        /// <summary>The layout array for a level from any entity's raw JSON.</summary>
+        private JArray FindLayout(int level, out int entity)
+        {
+            foreach (var kv in _world.Raw)
+            {
+                if (kv.Value["wlayout"] is JObject w && ((int?)w["lv"] ?? -1) == level
+                    && w["objs"] is JArray objs)
+                {
+                    entity = kv.Key;
+                    return objs;
+                }
+            }
+            entity = -1;
+            return null;
         }
 
         private void Publish(int level)
         {
-            // Retire the previous level's entities (we own them; if a
-            // previous authority owned them, the DO already despawned them
-            // with that client and rejects our attempt harmlessly).
-            var stale = new List<int>();
-            _world.ForEach<WObj>((e, w) => { if (w.Lv != level) stale.Add(e); });
-            foreach (var e in stale)
-                _mgr.SendDespawn(e);
-            if (stale.Count > 0)
-                EightPlayersPlugin.Log.LogInfo($"ECSNET wobj retired {stale.Count} stale entities");
+            // Retire other levels' layout entities we own (a departed
+            // authority's were auto-despawned with its connection).
+            foreach (var kv in new List<KeyValuePair<int, JObject>>(_world.Raw))
+                if (kv.Value["wlayout"] is JObject w && ((int?)w["lv"] ?? -1) != level)
+                    _mgr.SendDespawn(kv.Key);
 
-            int n = 0;
+            var objs = new JArray();
             foreach (var door in GameStateApi.Doors())
             {
                 if (door.tr == null) continue;
                 Vector2 p = door.tr.position;
-                _mgr.SendSpawnRaw(WobjComponents("door", door.doorType, p, level));
-                n++;
+                objs.Add(new JObject { ["k"] = "door", ["t"] = door.doorType, ["x"] = p.x, ["y"] = p.y });
             }
             foreach (var obj in GameStateApi.Objects())
             {
                 if (obj is Door || obj.tr == null) continue;
                 Vector2 p = obj.tr.position;
-                _mgr.SendSpawnRaw(WobjComponents("obj", obj.objectName, p, level));
-                n++;
+                objs.Add(new JObject { ["k"] = "obj", ["t"] = obj.objectName, ["x"] = p.x, ["y"] = p.y });
             }
-            EightPlayersPlugin.Log.LogInfo($"ECSNET wobj published: {n} world objects for level {level}");
+            _mgr.SendSpawnRaw(new JObject
+            {
+                ["wlayout"] = new JObject { ["lv"] = level, ["objs"] = objs }
+            });
+            EightPlayersPlugin.Log.LogInfo($"ECSNET wobj published: {objs.Count} world objects for level {level} (one layout entity)");
         }
 
-        private static JObject WobjComponents(string kind, string type, Vector2 p, int level) =>
-            new JObject
-            {
-                ["wobj"] = new JObject
-                {
-                    ["kind"] = kind, ["type"] = type,
-                    ["x"] = p.x, ["y"] = p.y, ["lv"] = level,
-                }
-            };
-
-        private void Reconcile(int level)
+        private void Reconcile(int level, JArray objs)
         {
-            _byEntity.Clear();
+            _byIndex.Clear();
             _byObject.Clear();
             int matched = 0, missing = 0;
-            _world.ForEach<WObj>((e, w) =>
+            for (int i = 0; i < objs.Count; i++)
             {
-                if (w.Lv != level)
-                    return;
-                var pos = new Vector2(w.X, w.Y);
-                PlayfieldObject local = w.Kind == "door"
+                if (!(objs[i] is JObject rec))
+                    continue;
+                var pos = new Vector2((float?)rec["x"] ?? 0, (float?)rec["y"] ?? 0);
+                PlayfieldObject local = (string)rec["k"] == "door"
                     ? (PlayfieldObject)GameStateApi.FindDoorAt(pos)
-                    : GameStateApi.FindObjectAt(pos, w.Type);
+                    : GameStateApi.FindObjectAt(pos, (string)rec["t"]);
                 if (local == null)
                 {
                     missing++;
-                    return;
+                    continue;
                 }
-                _byEntity[e] = local;
-                _byObject[local] = e;
+                _byIndex[i] = local;
+                _byObject[local] = i;
                 matched++;
-            });
-            // Local objects the authority doesn't know about (drift, or
-            // already-destroyed-on-authority). Counted for visibility.
+            }
             int extra = 0;
             foreach (var door in GameStateApi.Doors())
                 if (door.tr != null && !_byObject.ContainsKey(door)) extra++;

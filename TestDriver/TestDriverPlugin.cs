@@ -106,12 +106,12 @@ namespace SorTestDriver
                     // one-player offline game.
                     try
                     {
-                        // The in-level character-select overlay never closes
-                        // under automation (AcceptChoice needs a UI-selected
-                        // slot) and its openedCharacterSelect flag gates ALL
-                        // player movement — skip it and play the default char.
-                        if (gc.sessionDataBig != null)
-                            gc.sessionDataBig.mustSelectCharacter = false;
+                        // NOTE: do NOT set mustSelectCharacter=false here —
+                        // the level-transition flow depends on the char-select
+                        // path and stalls generation without it (level 2 loads
+                        // with 0 objects). The stuck-flag problem is handled
+                        // in the in-game state instead (accept once, then
+                        // clear the movement-gating flag).
                         gc.menuGUI.PressedStartGame(1);
                         Report("pressed-startgame-solo");
                         state = "in-game";
@@ -175,8 +175,12 @@ namespace SorTestDriver
                             cs.AcceptChoice(0);
                             Report("accepted-character");
                         }
-                        else
+                        else if (gc.loadCompleteReally)
                         {
+                            // Clear the stale movement-gating flag — but ONLY
+                            // once the level is fully loaded. Clearing during
+                            // a level transition diverts the load flow and the
+                            // level generates empty (agents=1, objects=0).
                             gc.mainGUI.openedCharacterSelect = false;
                             Report("cleared-character-select-flag");
                         }

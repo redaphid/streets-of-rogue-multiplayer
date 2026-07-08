@@ -217,6 +217,12 @@ namespace EightPlayers
                 gc.sessionData.randomListTable.Clear();
                 if (gc.sessionData.randomListTableStatic != null)
                     gc.sessionData.randomListTableStatic.Clear();
+                // The refill only happens while setupRandomness is false —
+                // on mid-session loads it is already true and the cleared
+                // table stays EMPTY, killing loadStuff2 (KeyNotFound
+                // 'SyringeContents') and wedging the level load forever.
+                if (gc.randomSelection != null)
+                    gc.randomSelection.setupRandomness = false;
             }
 
             var seed = System.Environment.GetEnvironmentVariable("SOR_SEED")

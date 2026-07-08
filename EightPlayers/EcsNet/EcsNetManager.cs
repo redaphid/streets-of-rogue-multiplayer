@@ -776,14 +776,14 @@ namespace EightPlayers.EcsNet
                 new JObject { ["x"] = p.x, ["y"] = p.y })));
         }
 
-        /// <summary>Adds the wobj entity id to a world-object event payload
+        /// <summary>Adds the layout INDEX to a world-object event payload
         /// when reconciliation has one — receivers prefer it over position
         /// (immune to generation drift). Position stays as the fallback.</summary>
         private JObject WithWobjEntity(PlayfieldObject obj, JObject payload)
         {
-            int e = _wobjs != null ? _wobjs.EntityFor(obj) : -1;
-            if (e >= 0)
-                payload["e"] = e;
+            int i = _wobjs != null ? _wobjs.IndexFor(obj) : -1;
+            if (i >= 0)
+                payload["wi"] = i;
             return payload;
         }
 
@@ -791,8 +791,8 @@ namespace EightPlayers.EcsNet
         /// reconcile map, or null (caller falls back to position lookup).</summary>
         private PlayfieldObject ResolveWobj(JObject eventData)
         {
-            var e = (int?)eventData?["e"] ?? -1;
-            return e >= 0 && _wobjs != null ? _wobjs.ObjectFor(e) : null;
+            var i = (int?)eventData?["wi"] ?? -1;
+            return i >= 0 && _wobjs != null ? _wobjs.ObjectAt(i) : null;
         }
 
         /// <summary>True while a remote door event is being applied locally,
@@ -885,15 +885,8 @@ namespace EightPlayers.EcsNet
                 });
             if (components["npc"] is JObject npc)
                 _world.Set(e, new NpcTag { Index = (int?)npc["i"] ?? -1, Type = (string)npc["type"] });
-            if (components["wobj"] is JObject wobj)
-                _world.Set(e, new WObj
-                {
-                    Kind = (string)wobj["kind"],
-                    Type = (string)wobj["type"],
-                    X = (float?)wobj["x"] ?? 0,
-                    Y = (float?)wobj["y"] ?? 0,
-                    Lv = (int?)wobj["lv"] ?? 0,
-                });
+            // The world-object layout ("wlayout") is read straight from the
+            // Raw store by WorldObjects — no typed component needed.
             if (components["dead"] is JObject)
                 _world.Set(e, new DeadTag { Value = true });
         }
@@ -941,7 +934,8 @@ namespace EightPlayers.EcsNet
             ClaimWorldSeedIfFirst();
             HealWorldDivergence();
             FollowRoomLevel();
-            if (_welcomed && WorldStable)
+            if (_welcomed && WorldStable
+                && System.Environment.GetEnvironmentVariable("SOR_WOBJ") != "0")
             {
                 var gcw = GameController.gameController;
                 if (_wobjs == null)
