@@ -221,6 +221,18 @@ namespace EightPlayers.EcsNet
         }
     }
 
+    // Publish weapon equips by LOCAL players (avatars equip through the same
+    // method but aren't local players, so no echo loop).
+    [HarmonyPatch(typeof(InvDatabase), "EquipWeapon", typeof(InvItem), typeof(bool))]
+    internal static class EcsEquipHook_Patch
+    {
+        private static void Postfix(InvDatabase __instance, InvItem item)
+        {
+            if (__instance.agent != null && item != null)
+                EcsNetManager.Instance?.OnLocalWeaponEquipped(__instance.agent, item.invItemName);
+        }
+    }
+
     // Publish new fires from the 8-arg SpawnFire master. A non-null result
     // means it actually spawned (the master dedups by position/burning
     // object and returns null otherwise). neverGoOut fires are skipped:

@@ -127,6 +127,20 @@ namespace EightPlayers.EcsNet
                 }
         }
 
+        /// <summary>Called from the EquipWeapon choke-point hook (EcsHooks).</summary>
+        public void OnLocalWeaponEquipped(Agent agent, string itemName)
+        {
+            if (agent == null || string.IsNullOrEmpty(itemName) || !_welcomed)
+                return;
+            foreach (var lp in _locals)
+                if (ReferenceEquals(lp.Agent, agent) && lp.Entity >= 0)
+                {
+                    _client.Send(Protocol.Set(lp.Entity,
+                        new JObject { ["weapon"] = new JObject { ["name"] = itemName } }));
+                    return;
+                }
+        }
+
         /// <summary>Called from the SetupDeath choke-point hook (EcsHooks).</summary>
         public void OnAgentDeath(Agent agent)
         {
@@ -898,6 +912,8 @@ namespace EightPlayers.EcsNet
                 _world.Set(e, new NpcTag { Index = (int?)npc["i"] ?? -1, Type = (string)npc["type"] });
             // The world-object layout ("wlayout") is read straight from the
             // Raw store by WorldObjects — no typed component needed.
+            if (components["weapon"] is JObject weapon)
+                _world.Set(e, new WeaponInfo { Name = (string)weapon["name"] });
             if (components["dead"] is JObject)
                 _world.Set(e, new DeadTag { Value = true });
         }

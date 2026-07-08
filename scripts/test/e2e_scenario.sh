@@ -215,6 +215,10 @@ cmd ecs1 "agents" | grep "'E2EA'" >/dev/null   # avatar still alive sanity
 cmd ecs0 "status $AUID Fast off" >/dev/null
 waitlog ecs1 "status 'Fast' off applied" 30 && ok "A's Fast removal applied to avatar on B" || fail "A's Fast removal applied to avatar on B"
 
+echo "[11b] equipped weapon visible on avatar"
+cmd ecs0 "equip $AUID Revolver" >/dev/null
+waitlog ecs1 "avatar weapon 'Revolver'" 30 && ok "A's Revolver equipped on B's avatar" || fail "A's Revolver equipped on B's avatar"
+
 echo "[12/12] fire ignite + extinguish"
 APOS=$(cmd ecs0 state | grep "player:" | grep -o 'pos=([^)]*)' | tr -d 'pos=()')
 FX=$(echo "$(echo "$APOS" | cut -d, -f1) + 2" | bc); FY=$(echo "$APOS" | cut -d, -f2)

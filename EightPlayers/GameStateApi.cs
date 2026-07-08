@@ -105,6 +105,22 @@ namespace EightPlayers
                 throw new ArgumentException($"item '{itemName}' not created");
         }
 
+        /// <summary>Give (if absent) and equip a weapon through the vanilla
+        /// EquipWeapon choke point.</summary>
+        public static void EquipWeapon(int uid, string itemName)
+        {
+            var agent = Require(uid);
+            InvItem item = null;
+            foreach (var it in agent.inventory.InvItemList)
+                if (it != null && it.invItemName == itemName)
+                    item = it;
+            if (item == null)
+                item = agent.inventory.AddItem(itemName, 1);
+            if (item == null)
+                throw new ArgumentException($"item '{itemName}' not created");
+            agent.inventory.EquipWeapon(item, sfx: false);
+        }
+
         public static void DropItem(int uid, string itemName)
         {
             var agent = Require(uid);

@@ -51,6 +51,12 @@ namespace EightPlayers.EcsNet
         public int Lv;
     }
 
+    /// <summary>The player's currently equipped weapon (shown on avatars).</summary>
+    public struct WeaponInfo
+    {
+        public string Name;
+    }
+
     /// <summary>Marks an entity as a mirrored NPC; Index is its level spawn order.</summary>
     public struct NpcTag
     {

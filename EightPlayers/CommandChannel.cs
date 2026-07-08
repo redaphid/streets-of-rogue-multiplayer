@@ -167,6 +167,10 @@ namespace EightPlayers
                     GameStateApi.DropItem(int.Parse(parts[1]), parts[2]);
                     Out($"agent {parts[1]} dropped {parts[2]}");
                     break;
+                case "equip":
+                    GameStateApi.EquipWeapon(int.Parse(parts[1]), parts[2]);
+                    Out($"agent {parts[1]} equipped {parts[2]}");
+                    break;
                 case "tp":
                     GameStateApi.Teleport(int.Parse(parts[1]), ParseVec(parts[2], parts[3]));
                     Out($"agent {parts[1]} teleported to {parts[2]},{parts[3]}");

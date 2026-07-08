@@ -265,6 +265,22 @@ local player, who can't act mid-load.
   e2e-asserted; the assertion turns silent divergence into a loud early
   failure and the heal makes real sessions self-correct.
 
+## Equipped weapon (`weapon` component)  *(added 2026-07-08)*
+
+- Choke: `InvDatabase.EquipWeapon(InvItem, bool)` master (the 1-arg
+  overload funnels in). Postfix publishes `weapon {name}` on the local
+  player's entity — slow-changing component, persisted by the DO so late
+  joiners see it via the snapshot.
+- Apply: `RemoteAvatars.Sync` gives + equips the item on the avatar
+  through the same vanilla choke (`GameStateApi.EquipWeapon`, sfx off)
+  whenever the component's name differs from what the avatar wears.
+  `AppliedWeapon` is set BEFORE the try so a bad item name can't
+  retry-spam every tick.
+- No echo: avatars aren't local players, so the equip hook doesn't
+  republish their equips.
+- Debug: `equip <uid> <item>` command (give-if-absent + equip).
+- e2e: [11b] A equips a Revolver; B's avatar equips it.
+
 ## World-object layout (`wlayout` component)  *(added 2026-07-08)*
 
 - Architecture shift (user-approved): stop DEPENDING on same-seed

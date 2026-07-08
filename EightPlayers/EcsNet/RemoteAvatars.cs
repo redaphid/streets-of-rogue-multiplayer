@@ -17,6 +17,7 @@ namespace EightPlayers.EcsNet
             public Vector2 Target;
             public string Name;
             public bool AppliedDead;
+            public string AppliedWeapon;
         }
 
         private readonly Dictionary<int, Avatar> _avatars = new Dictionary<int, Avatar>();
@@ -106,6 +107,28 @@ namespace EightPlayers.EcsNet
                 }
 
                 avatar.Target = new Vector2(pos.X, pos.Y);
+
+                // Mirror the owner's equipped weapon so you can SEE what your
+                // co-op partner is holding. Give+equip runs through the
+                // vanilla choke; the avatar isn't a local player, so the
+                // equip hook doesn't republish.
+                if (world.TryGet<WeaponInfo>(e, out var weapon)
+                    && !string.IsNullOrEmpty(weapon.Name)
+                    && avatar.AppliedWeapon != weapon.Name)
+                {
+                    avatar.AppliedWeapon = weapon.Name; // set first: never retry-spam
+                    try
+                    {
+                        GameStateApi.EquipWeapon(avatar.Agent.UID, weapon.Name);
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET avatar weapon '{weapon.Name}' equipped (entity {e})");
+                    }
+                    catch (System.Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning(
+                            $"ECSNET avatar weapon '{weapon.Name}' failed: {ex.Message}");
+                    }
+                }
             });
 
             List<int> gone = null;
