@@ -388,6 +388,39 @@ TestDriver corollary: transition char-selects NEED `AcceptChoice` retries
 to finish loading (a slot carries over, so it succeeds there), and the
 stale-flag clear (movement gate) must only run post-load.
 
+## Control plane (`input` intent component)  *(added 2026-07-08)*
+
+Control-as-data: any client (or a JS tool, or Claude via `ecsset`) writes an
+`input` component onto a **player entity**; the entity's OWNING client
+consumes it each frame and drives its real character through VirtualInput.
+No side-channel needed — driving and observing both happen through the ECS.
+
+- **Server rule**: `input` is in the `SHARED` set (`worker/src/ecs.ts`) — the
+  only component writable by non-owners. A write mixing `input` with any
+  owned component is still rejected whole. It is also `VOLATILE`: broadcast
+  but never persisted, so a stale intent cannot replay after DO hibernation.
+- **Shape** (all fields optional):
+  - `{"tx": x, "ty": y}` — walk to a point (steering, not pathfinding).
+  - `{"mx": -1..1, "my": -1..1}` — held movement axes.
+  - `{"hold": ["attack", "interact", ...]}` — held buttons (VirtualInput
+    button names).
+  - `null` (or `{}`) — clear the intent, releasing all virtual input.
+- **Owner behavior** (`EcsNetManager.ApplyInputIntents`): applied only when
+  `_welcomed && WorldStable`; re-applied only when the component's compact
+  JSON changes; walkto/move/hold get a 60 s VirtualInput lease, so a
+  forgotten intent self-expires.
+- **Mirror caveat**: clearing works because `EcsWorld.MergeRaw` merges with
+  `MergeNullValueHandling.Merge` — null component values must WIN the merge.
+- e2e: `[14/14]` — B writes a walk target onto A's entity and watches A's
+  `pos` move >2 units purely via `ecsget`.
+
+## Status inspection (`fx` component)  *(added 2026-07-08)*
+
+`OnLocalStatusChanged` publishes, alongside the existing `status` event, the
+player's FULL current status list as `{"fx":{"list":["Fast",...]}}` on their
+entity — active effects are readable state (`ecsget`), not just an event
+stream. e2e: `[14b]`.
+
 ## Known non-determinism (accepted)
 
 - NPC clothing/loadout CONTENTS diverge between instances (RNG consumption
@@ -410,6 +443,8 @@ tp <uid> <x> <y> · opendoor <duid> [uid] · lockdoor <duid> [off]
 destroyobj <ouid> · ignite <x> <y> · extinguish <x> <y>
 spawnagent <type> <x> <y> · nextlevel
 room <code> · leave · screenshot [file.png]
+entities · ecsget <e> · ecsset <e> <json> · ecsevent <name> [json]
+move <dx> <dy> · walkto <x> <y> · hold <button> · stop · input
 ```
 
 `screenshot` writes via `ScreenCapture.CaptureScreenshot`; with clone dirs

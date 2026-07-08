@@ -114,13 +114,21 @@ namespace EightPlayers.EcsNet
             _stores.Clear();
         }
 
+        // Null component values must WIN the merge (writing {"input":null}
+        // clears an intent); Json.NET ignores nulls by default.
+        private static readonly Newtonsoft.Json.Linq.JsonMergeSettings RawMerge =
+            new Newtonsoft.Json.Linq.JsonMergeSettings
+            {
+                MergeNullValueHandling = Newtonsoft.Json.Linq.MergeNullValueHandling.Merge,
+            };
+
         public void MergeRaw(int e, Newtonsoft.Json.Linq.JObject components)
         {
             if (components == null)
                 return;
             _entities.Add(e);
             if (Raw.TryGetValue(e, out var existing))
-                existing.Merge(components);
+                existing.Merge(components, RawMerge);
             else
                 Raw[e] = (Newtonsoft.Json.Linq.JObject)components.DeepClone();
         }

@@ -72,6 +72,9 @@ namespace EightPlayers.EcsNet
             public LevelId SentLevel;
             public string SentChar;
             public float NextPosKeepalive;
+            /// <summary>Last input intent applied to VirtualInput (compact
+            /// JSON, null = none) — re-apply only on change.</summary>
+            public string AppliedInput;
         }
 
         // pos is volatile in the Durable Object (never persisted), so a DO
@@ -123,8 +126,52 @@ namespace EightPlayers.EcsNet
                 {
                     _client.Send(Protocol.Event("status",
                         new JObject { ["e"] = lp.Entity, ["name"] = effect, ["on"] = on }));
+                    // Mirror the full current status list as the `fx`
+                    // component so state is inspectable via ECS reads, not
+                    // just observable via events.
+                    var list = new JArray();
+                    foreach (var se in agent.statusEffects.StatusEffectList)
+                        if (se != null)
+                            list.Add(se.statusEffectName);
+                    _client.Send(Protocol.Set(lp.Entity,
+                        new JObject { ["fx"] = new JObject { ["list"] = list } }));
                     return;
                 }
+        }
+
+        /// <summary>The ECS control plane: any client may write an `input`
+        /// intent component onto a player entity (shared+volatile on the
+        /// server); the OWNING client consumes it here and drives its real
+        /// character through VirtualInput. `{"tx","ty"}` walks to a point,
+        /// `{"mx","my"}` holds movement axes, `{"hold":["attack",...]}`
+        /// holds buttons; writing `null` (or `{}`) clears the intent.</summary>
+        private void ApplyInputIntents()
+        {
+            foreach (var lp in _locals)
+            {
+                if (lp.Entity < 0 || lp.Agent == null)
+                    continue;
+                _world.Raw.TryGetValue(lp.Entity, out var raw);
+                var input = raw?["input"] as JObject;
+                var key = input?.ToString(Newtonsoft.Json.Formatting.None);
+                if (key == lp.AppliedInput)
+                    continue; // unchanged — VirtualInput keeps applying it
+                lp.AppliedInput = key;
+
+                float? tx = (float?)input?["tx"], ty = (float?)input?["ty"];
+                float? mx = (float?)input?["mx"], my = (float?)input?["my"];
+                if (tx.HasValue && ty.HasValue)
+                    VirtualInput.WalkTo(new Vector2(tx.Value, ty.Value), 60f);
+                else if (mx.HasValue || my.HasValue)
+                    VirtualInput.Move(new Vector2(mx ?? 0f, my ?? 0f), 60f);
+                else
+                    VirtualInput.Stop();
+                if (input?["hold"] is JArray holds)
+                    foreach (var h in holds)
+                        VirtualInput.Hold((string)h, 60f);
+                EightPlayersPlugin.Log.LogInfo(
+                    $"ECSNET input intent on entity {lp.Entity}: {(key ?? "cleared")}");
+            }
         }
 
         /// <summary>Called from the EquipWeapon choke-point hook (EcsHooks).</summary>
@@ -208,6 +255,9 @@ namespace EightPlayers.EcsNet
                 _nextSendAt = Time.unscaledTime + 1f / Mathf.Max(1, EightPlayersPlugin.EcsSendHz.Value);
                 PublishLocalPlayers();
             }
+
+            if (_welcomed && WorldStable)
+                ApplyInputIntents();
 
             // The loader owns the world during level loads: spawning or
             // despawning avatar agents mid-load kills the game's own load
