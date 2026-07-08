@@ -63,6 +63,23 @@ cmd() { local d="$1"; shift; : > "$d/BepInEx/ep_out.txt"
 | `input` | current virtual-input state + player position |
 | `dump` / `action <name>` | Rewired controller/binding introspection |
 
+### The ECS world surface (primary inspection + interaction point)
+
+The room's entity/component state is the source of truth for everything
+ported; these verbs read and write it directly. Each new system port gets
+its verbs and e2e assertions here first.
+
+| Command | Does |
+|---|---|
+| `entities` | every entity: id, owner, full merged component JSON |
+| `ecsget <e>` | one entity's verbatim component JSON |
+| `ecsset <e> <json>` | raw component write (no spaces in json; DO enforces ownership) |
+| `ecsevent <name> [json]` | inject a named room event, exactly as a system publisher would |
+
+The client keeps a verbatim JSON mirror of every component it has received
+(`EcsWorld.Raw`) — unknown/future components are visible here even before
+any C# type exists for them.
+
 ### Mutate state (through vanilla choke points — synced systems propagate)
 
 | Command | Does |

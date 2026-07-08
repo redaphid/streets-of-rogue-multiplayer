@@ -99,6 +99,17 @@ done
 BUID=$(player_uid ecs1)
 waitlog ecs1 "avatar spawned" 60
 
+echo "[2c] ecs surface: raw component write on A readable on B"
+AENT=$(cmd ecs0 ecs | grep 'local agent' | grep -o 'entity=[0-9]*' | head -1 | cut -d= -f2)
+cmd ecs0 "ecsset $AENT {\"probe\":{\"v\":42}}" >/dev/null
+sleep 3
+cmd ecs1 "ecsget $AENT" | grep -q '"v":42' && ok "probe component visible on B (entity $AENT)" || fail "probe component visible on B (entity $AENT)"
+
+echo "[2d] world-object entities: published by authority, mapped on both"
+WA=$(cmd ecs0 entities | grep -c '"wobj"'); WB=$(cmd ecs1 entities | grep -c '"wobj"')
+[ "${WA:-0}" -gt 100 ] && [ "$WA" = "$WB" ] && ok "wobj entities on both (A=$WA B=$WB)" || fail "wobj entities on both (A=$WA B=$WB)"
+waitlog ecs0 "wobj reconcile" 30 && waitlog ecs1 "wobj reconcile" 30 && ok "both instances reconciled wobj map" || fail "both instances reconciled wobj map"
+
 echo "[3/8] teleport follow"
 # Teleport A to a generation NPC's position — guaranteed walkable ground
 # inside the level on any seed/mode (players idle in a holding area

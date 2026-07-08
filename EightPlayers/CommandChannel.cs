@@ -230,6 +230,39 @@ namespace EightPlayers
                     Out($"worldhash {GameStateApi.WorldHash():x8} seed={gc?.loadLevel?.randomSeedNum} level={gc?.sessionDataBig?.curLevel}");
                     break;
                 }
+                case "entities":
+                {
+                    var mgr = EcsNet.EcsNetManager.Instance;
+                    if (mgr == null) { Out("no EcsNetManager"); break; }
+                    int n = 0;
+                    foreach (var line in mgr.HarnessEntities()) { Out("  " + line); n++; }
+                    Out($"entities: {n}");
+                    break;
+                }
+                case "ecsget":
+                {
+                    var json = EcsNet.EcsNetManager.Instance?.HarnessGet(int.Parse(parts[1]));
+                    Out(json ?? $"no entity {parts[1]}");
+                    break;
+                }
+                case "ecsset":
+                {
+                    // ecsset <entity> <json>  (json must contain no spaces)
+                    EcsNet.EcsNetManager.Instance?.HarnessSet(int.Parse(parts[1]),
+                        Newtonsoft.Json.Linq.JObject.Parse(cmd.Substring(cmd.IndexOf(parts[1]) + parts[1].Length).Trim()));
+                    Out($"set sent for entity {parts[1]}");
+                    break;
+                }
+                case "ecsevent":
+                {
+                    // ecsevent <name> [json]
+                    var data = parts.Length > 2
+                        ? Newtonsoft.Json.Linq.JObject.Parse(cmd.Substring(cmd.IndexOf(parts[2])))
+                        : new Newtonsoft.Json.Linq.JObject();
+                    EcsNet.EcsNetManager.Instance?.HarnessEvent(parts[1], data);
+                    Out($"event '{parts[1]}' sent");
+                    break;
+                }
                 case "move":
                     VirtualInput.Move(ParseVec(parts[1], parts[2]), parts.Length > 3 ? float.Parse(parts[3]) : 1f);
                     Out($"moving ({parts[1]},{parts[2]}) for {(parts.Length > 3 ? parts[3] : "1")}s");

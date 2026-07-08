@@ -40,6 +40,17 @@ namespace EightPlayers.EcsNet
         public uint Hash;
     }
 
+    /// <summary>A world object (door/destructible) published by the level
+    /// authority; the local twin is resolved by WorldObjects reconciliation.</summary>
+    public struct WObj
+    {
+        public string Kind;
+        public string Type;
+        public float X;
+        public float Y;
+        public int Lv;
+    }
+
     /// <summary>Marks an entity as a mirrored NPC; Index is its level spawn order.</summary>
     public struct NpcTag
     {
@@ -68,6 +79,12 @@ namespace EightPlayers.EcsNet
         private readonly HashSet<int> _entities = new HashSet<int>();
         private readonly Dictionary<Type, IStore> _stores = new Dictionary<Type, IStore>();
 
+        // Verbatim JSON of every component as last received, merged per
+        // entity — the debug harness's full-fidelity view (typed stores only
+        // keep the keys this build knows about).
+        public readonly Dictionary<int, Newtonsoft.Json.Linq.JObject> Raw =
+            new Dictionary<int, Newtonsoft.Json.Linq.JObject>();
+
         public IEnumerable<int> Entities => _entities;
         public int Count => _entities.Count;
 
@@ -79,6 +96,7 @@ namespace EightPlayers.EcsNet
         public void Despawn(int e)
         {
             _entities.Remove(e);
+            _Raw_Remove(e);
             foreach (var store in _stores.Values)
                 store.Remove(e);
         }
@@ -86,8 +104,22 @@ namespace EightPlayers.EcsNet
         public void Clear()
         {
             _entities.Clear();
+            Raw.Clear();
             _stores.Clear();
         }
+
+        public void MergeRaw(int e, Newtonsoft.Json.Linq.JObject components)
+        {
+            if (components == null)
+                return;
+            _entities.Add(e);
+            if (Raw.TryGetValue(e, out var existing))
+                existing.Merge(components);
+            else
+                Raw[e] = (Newtonsoft.Json.Linq.JObject)components.DeepClone();
+        }
+
+        private void _Raw_Remove(int e) => Raw.Remove(e);
 
         public bool Exists(int e) => _entities.Contains(e);
 

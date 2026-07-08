@@ -20,6 +20,7 @@ namespace EightPlayers.EcsNet
         private readonly Dictionary<int, Ghost> _ghosts = new Dictionary<int, Ghost>();
         private readonly RemoteAvatars _avatars = new RemoteAvatars();
         private readonly NpcSync _npcs = new NpcSync();
+        private WorldObjects _wobjs;
         private readonly HashSet<int> _peerIds = new HashSet<int>();
         private bool _wasNpcAuthority;
 
@@ -659,6 +660,40 @@ namespace EightPlayers.EcsNet
         internal void SendDespawn(int entity) =>
             _client.Send(Protocol.Despawn(entity));
 
+        internal void SendSpawnRaw(JObject components) =>
+            _client.Send(Protocol.Spawn(_nextTmp++, components));
+
+        // ---- debug-harness ECS surface (CommandChannel) ------------------
+
+        /// <summary>Raw component write to any entity we own (the DO rejects
+        /// writes to others'). The harness's generic mutation verb.</summary>
+        public void HarnessSet(int entity, JObject components) =>
+            _client.Send(Protocol.Set(entity, components));
+
+        /// <summary>Inject a named event into the room, exactly as a system
+        /// publisher would.</summary>
+        public void HarnessEvent(string name, JObject data) =>
+            _client.Send(Protocol.Event(name, data));
+
+        /// <summary>Full-fidelity view of one entity (verbatim merged JSON).</summary>
+        public string HarnessGet(int entity)
+        {
+            if (!_world.Raw.TryGetValue(entity, out var raw))
+                return _world.Exists(entity) ? "{}" : null;
+            return raw.ToString(Newtonsoft.Json.Formatting.None);
+        }
+
+        /// <summary>One line per entity: id, owner, merged component JSON.</summary>
+        public IEnumerable<string> HarnessEntities()
+        {
+            foreach (var e in _world.Entities)
+            {
+                int owner = _world.TryGet<Owned>(e, out var o) ? o.ClientId : -1;
+                _world.Raw.TryGetValue(e, out var raw);
+                yield return $"entity {e} owner={owner} {raw?.ToString(Newtonsoft.Json.Formatting.None) ?? "{}"}";
+            }
+        }
+
         /// <summary>Called from the SpawnAgent choke-point hook.</summary>
         public void RegisterNpcSpawn(Agent agent)
         {
@@ -707,6 +742,7 @@ namespace EightPlayers.EcsNet
         {
             GameStateApi.InvalidateWorldHash();
             _npcs.OnLevelGenerated();
+            _wobjs?.OnLevelChanged();
         }
 
         /// <summary>Called from the Item.Interact choke-point hook (EcsHooks).</summary>
@@ -805,6 +841,7 @@ namespace EightPlayers.EcsNet
         {
             if (components == null)
                 return;
+            _world.MergeRaw(e, components);
             if (components["pos"] is JObject pos)
                 _world.Set(e, new Pos { X = (float)pos["x"], Y = (float)pos["y"] });
             if (components["player"] is JObject player)
@@ -825,6 +862,15 @@ namespace EightPlayers.EcsNet
                 });
             if (components["npc"] is JObject npc)
                 _world.Set(e, new NpcTag { Index = (int?)npc["i"] ?? -1, Type = (string)npc["type"] });
+            if (components["wobj"] is JObject wobj)
+                _world.Set(e, new WObj
+                {
+                    Kind = (string)wobj["kind"],
+                    Type = (string)wobj["type"],
+                    X = (float?)wobj["x"] ?? 0,
+                    Y = (float?)wobj["y"] ?? 0,
+                    Lv = (int?)wobj["lv"] ?? 0,
+                });
             if (components["dead"] is JObject)
                 _world.Set(e, new DeadTag { Value = true });
         }
@@ -872,6 +918,14 @@ namespace EightPlayers.EcsNet
             ClaimWorldSeedIfFirst();
             HealWorldDivergence();
             FollowRoomLevel();
+            if (_welcomed && WorldStable)
+            {
+                var gcw = GameController.gameController;
+                if (_wobjs == null)
+                    _wobjs = new WorldObjects(_world, this);
+                if (gcw != null && gcw.sessionDataBig != null)
+                    _wobjs.Tick(_wasNpcAuthority, gcw.sessionDataBig.curLevel);
+            }
 
             for (int i = 0; i < _locals.Count; i++)
             {
