@@ -21,6 +21,10 @@ namespace EightPlayers.EcsNet
 
         private readonly Dictionary<int, Avatar> _avatars = new Dictionary<int, Avatar>();
 
+        /// <summary>Forward lookup: the avatar agent for an entity, if one exists.</summary>
+        public Agent GetAgentFor(int entity) =>
+            _avatars.TryGetValue(entity, out var avatar) ? avatar.Agent : null;
+
         /// <summary>Reverse lookup: is this agent one of our avatars, and for which entity?</summary>
         public bool TryGetEntityFor(Agent agent, out int entity)
         {

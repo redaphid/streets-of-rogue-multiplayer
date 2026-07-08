@@ -96,6 +96,13 @@ namespace EightPlayers
                         ? EcsNet.EcsNetManager.Instance.DebugDump()
                         : "no EcsNetManager");
                     break;
+                case "screenshot":
+                {
+                    var path = parts.Length > 1 ? cmd.Substring("screenshot ".Length).Trim() : $"screenshot-{DateTime.Now:HHmmss}.png";
+                    UnityEngine.ScreenCapture.CaptureScreenshot(path);
+                    Out($"screenshot requested -> {path} (written by the game next frame)");
+                    break;
+                }
                 case "room":
                     EcsNet.EcsNetManager.Instance?.JoinRoom(parts[1]);
                     Out($"joining room {parts[1].ToUpperInvariant()}");
@@ -129,6 +136,16 @@ namespace EightPlayers
                     GameStateApi.Kill(int.Parse(parts[1]));
                     Out($"agent {parts[1]} killed");
                     break;
+                case "status":
+                {
+                    bool on = parts.Length < 4 || parts[3] != "off";
+                    GameStateApi.SetStatus(int.Parse(parts[1]), parts[2], on);
+                    Out($"agent {parts[1]} status {parts[2]} {(on ? "on" : "off")}");
+                    break;
+                }
+                case "statuses":
+                    Out($"agent {parts[1]} statuses: {string.Join(",", new List<string>(GameStateApi.Statuses(int.Parse(parts[1]))).ToArray())}");
+                    break;
                 case "give":
                     GameStateApi.GiveItem(int.Parse(parts[1]), parts[2], parts.Length > 3 ? int.Parse(parts[3]) : 1);
                     Out($"gave {parts[2]} to agent {parts[1]}");
@@ -145,6 +162,33 @@ namespace EightPlayers
                     GameStateApi.OpenDoor(int.Parse(parts[1]),
                         parts.Length > 2 ? GameStateApi.FindAgent(int.Parse(parts[2])) : null);
                     Out($"door {parts[1]} opened{(parts.Length > 2 ? $" by agent {parts[2]}" : "")}");
+                    break;
+                case "lockdoor":
+                {
+                    bool nowLocked = GameStateApi.LockDoor(int.Parse(parts[1]), parts.Length < 3 || parts[2] != "off");
+                    Out($"door {parts[1]} locked={nowLocked}");
+                    break;
+                }
+                case "objects":
+                {
+                    var gc = GameController.gameController;
+                    UnityEngine.Vector2 origin = gc?.playerAgent != null ? (UnityEngine.Vector2)gc.playerAgent.tr.position : UnityEngine.Vector2.zero;
+                    var objs = new List<ObjectReal>(GameStateApi.Objects());
+                    objs.RemoveAll(o => o.tr == null || o is Door);
+                    objs.Sort((a, b) =>
+                        ((UnityEngine.Vector2)a.tr.position - origin).sqrMagnitude
+                        .CompareTo(((UnityEngine.Vector2)b.tr.position - origin).sqrMagnitude));
+                    for (int i = 0; i < objs.Count && i < 15; i++)
+                    {
+                        var o = objs[i];
+                        UnityEngine.Vector2 p = o.tr.position;
+                        Out($"  object uid={o.UID} '{o.objectName}' pos=({p.x:0.#},{p.y:0.#}) destroying={o.destroying}");
+                    }
+                    break;
+                }
+                case "destroyobj":
+                    GameStateApi.DestroyObject(int.Parse(parts[1]));
+                    Out($"object {parts[1]} destroyed");
                     break;
                 case "doors":
                 {

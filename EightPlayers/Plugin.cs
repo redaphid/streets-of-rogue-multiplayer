@@ -207,10 +207,11 @@ namespace EightPlayers
             // refills them from scratch.
             if (gc.sessionData != null && gc.sessionData.randomListTable != null
                 && gc.sessionData.randomListTable.Count != 0
-                && !gc.sessionData.randomListTable.ContainsKey("SyringeContents"))
+                && (!gc.sessionData.randomListTable.ContainsKey("SyringeContents")      // late fill (LoadRandomness)
+                    || !gc.sessionData.randomListTable.ContainsKey("FloorTilesBuilding"))) // early fill (LoadRandomnessEarly)
             {
                 EightPlayersPlugin.Log.LogWarning(
-                    $"sessionData.randomListTable is partial ({gc.sessionData.randomListTable.Count} lists, no SyringeContents) - clearing so LoadRandomness refills");
+                    $"sessionData.randomListTable is partial ({gc.sessionData.randomListTable.Count} lists) - clearing so the game refills it");
                 gc.sessionData.randomListTable.Clear();
                 if (gc.sessionData.randomListTableStatic != null)
                     gc.sessionData.randomListTableStatic.Clear();

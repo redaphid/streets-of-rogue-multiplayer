@@ -115,6 +115,50 @@ namespace EightPlayers.Tracing
     }
 
     [HarmonyPatch]
+    internal static class TraceStatusAdd_Patch
+    {
+        private static MethodBase TargetMethod() =>
+            AccessTools.GetDeclaredMethods(typeof(StatusEffects))
+                .Where(m => m.Name == "AddStatusEffect")
+                .OrderByDescending(m => m.GetParameters().Length)
+                .First();
+
+        private static void Postfix(StatusEffects __instance, string statusEffectName)
+        {
+            if (!Trace.Enabled)
+                return;
+            Trace.Emit("agent", "status", new JObject
+            {
+                ["agent"] = TraceFmt.AgentRef(__instance.agent),
+                ["effect"] = statusEffectName,
+                ["on"] = true,
+            });
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class TraceStatusRemove_Patch
+    {
+        private static MethodBase TargetMethod() =>
+            AccessTools.GetDeclaredMethods(typeof(StatusEffects))
+                .Where(m => m.Name == "RemoveStatusEffect")
+                .OrderByDescending(m => m.GetParameters().Length)
+                .First();
+
+        private static void Postfix(StatusEffects __instance, string statusEffectName)
+        {
+            if (!Trace.Enabled)
+                return;
+            Trace.Emit("agent", "status", new JObject
+            {
+                ["agent"] = TraceFmt.AgentRef(__instance.agent),
+                ["effect"] = statusEffectName,
+                ["on"] = false,
+            });
+        }
+    }
+
+    [HarmonyPatch]
     internal static class TraceSetupDeath_Patch
     {
         private static MethodBase TargetMethod() =>

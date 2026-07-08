@@ -24,6 +24,36 @@ namespace EightPlayers.EcsNet
     }
 
     [HarmonyPatch]
+    internal static class EcsStatusAddHook_Patch
+    {
+        private static MethodBase TargetMethod() =>
+            AccessTools.GetDeclaredMethods(typeof(StatusEffects))
+                .Where(m => m.Name == "AddStatusEffect")
+                .OrderByDescending(m => m.GetParameters().Length)
+                .First();
+
+        private static void Postfix(StatusEffects __instance, string statusEffectName)
+        {
+            EcsNetManager.Instance?.OnLocalStatusChanged(__instance.agent, statusEffectName, true);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class EcsStatusRemoveHook_Patch
+    {
+        private static MethodBase TargetMethod() =>
+            AccessTools.GetDeclaredMethods(typeof(StatusEffects))
+                .Where(m => m.Name == "RemoveStatusEffect")
+                .OrderByDescending(m => m.GetParameters().Length)
+                .First();
+
+        private static void Postfix(StatusEffects __instance, string statusEffectName)
+        {
+            EcsNetManager.Instance?.OnLocalStatusChanged(__instance.agent, statusEffectName, false);
+        }
+    }
+
+    [HarmonyPatch]
     internal static class EcsDeathHook_Patch
     {
         private static MethodBase TargetMethod() =>
@@ -140,6 +170,47 @@ namespace EightPlayers.EcsNet
         {
             if (myAgent != null && myAgent.isPlayer > 0 && myAgent.isPlayer != 99)
                 EcsNetManager.Instance?.OnLocalDoorOpen(__instance);
+        }
+    }
+
+    // Lock/Unlock take no agent (levers, keys, hacks all funnel here), so
+    // remote applies are suppressed with a flag instead. Only publish when
+    // the state actually changed (the non-authority branch routes through
+    // ObjectMult without touching `locked`).
+    [HarmonyPatch(typeof(Door), "Lock")]
+    internal static class EcsDoorLockHook_Patch
+    {
+        private static void Postfix(Door __instance)
+        {
+            if (__instance.locked && !EcsNetManager.ApplyingRemoteDoor)
+                EcsNetManager.Instance?.OnLocalDoorLock(__instance, true);
+        }
+    }
+
+    [HarmonyPatch(typeof(Door), "Unlock")]
+    internal static class EcsDoorUnlockHook_Patch
+    {
+        private static void Postfix(Door __instance)
+        {
+            if (!__instance.locked && !EcsNetManager.ApplyingRemoteDoor)
+                EcsNetManager.Instance?.OnLocalDoorLock(__instance, false);
+        }
+    }
+
+    // Publish object destruction from any local cause (player, NPC, fire,
+    // chain explosions). DestroyMe only acts when `destroying` flips false ->
+    // true, which also makes remote applies idempotent: duplicates and echos
+    // hit an already-destroying object and no-op.
+    [HarmonyPatch(typeof(ObjectReal), "DestroyMe", typeof(PlayfieldObject))]
+    internal static class EcsObjectDestroyHook_Patch
+    {
+        private static void Prefix(ObjectReal __instance, ref bool __state) =>
+            __state = __instance.destroying;
+
+        private static void Postfix(ObjectReal __instance, bool __state)
+        {
+            if (!__state && __instance.destroying && !EcsNetManager.ApplyingRemoteObject)
+                EcsNetManager.Instance?.OnLocalObjectDestroyed(__instance);
         }
     }
 }

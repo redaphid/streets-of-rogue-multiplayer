@@ -45,7 +45,7 @@ points (docs/trace-choke-points.md) → (2) capture baseline traces + tests →
 (3) implement the ECS version event-driven off the same choke points →
 (4) `scripts/test/trace_diff.mjs` vanilla-vs-ECS → (5) flip the default.
 
-Ported so far:
+Ported so far (per-system detail: [ecs-systems.md](ecs-systems.md)):
 - **PvP damage**: hits on a remote player's avatar relay as `pvp-hit` events
   to the owner, who applies them authoritatively through vanilla
   ChangeHealth (each player owns their own hp); the resulting hp component
@@ -64,6 +64,23 @@ Ported so far:
   start, so everyone generates the same map. Player entities carry a
   `level {seed, num}` component; ghosts only render for same-world players.
   `SOR_SEED` env overrides everything (test determinism control).
+- **Status effects** (2026-07-08): Add/RemoveStatusEffect masters publish a
+  `status {e, name, on}` event for local players; peers mirror it on the
+  avatar (popups suppressed). Natural expiry converges from the owner.
+- **Door lock/unlock** (2026-07-08): `door-lock {x, y, locked}` from the
+  Lock/Unlock chokes, flag-suppressed echo, position-addressed apply.
+- **Object destruction** (2026-07-08): `obj-destroy {x, y, name}` from
+  `ObjectReal.DestroyMe` (destroying-flag edge), idempotent apply.
+
+## Future client note
+
+A JavaScript/browser client is planned. The protocol is deliberately
+language-neutral: one JSON object per WebSocket text frame, schema owned by
+`worker/src/protocol.ts` (mirrored by `EightPlayers/EcsNet/Protocol.cs`).
+When adding events keep payloads self-describing (no C#-specific encoding,
+no reliance on game-instance state a browser wouldn't have), and document
+them in [ecs-systems.md](ecs-systems.md) — that file doubles as the spec a
+JS client will be written against.
 
 ## Phase plan
 

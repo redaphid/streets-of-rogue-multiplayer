@@ -80,6 +80,23 @@ namespace EightPlayers
             agent.statusEffects.SetupDeath(null, killedOnClient: false, noSFX: false);
         }
 
+        public static void SetStatus(int uid, string effect, bool on)
+        {
+            var agent = Require(uid);
+            if (on)
+                agent.statusEffects.AddStatusEffect(effect);
+            else
+                agent.statusEffects.RemoveStatusEffect(effect);
+        }
+
+        public static IEnumerable<string> Statuses(int uid)
+        {
+            var agent = Require(uid);
+            foreach (var se in agent.statusEffects.StatusEffectList)
+                if (se != null)
+                    yield return se.statusEffectName;
+        }
+
         public static void GiveItem(int uid, string itemName, int count)
         {
             var agent = Require(uid);
@@ -201,12 +218,68 @@ namespace EightPlayers
             return null;
         }
 
+        public static IEnumerable<ObjectReal> Objects()
+        {
+            var gc = GC;
+            if (gc == null)
+                yield break;
+            foreach (var objectReal in gc.objectRealList)
+                if (objectReal != null)
+                    yield return objectReal;
+        }
+
+        /// <summary>Object by position + name — same UID-drift rationale as FindDoorAt.</summary>
+        public static ObjectReal FindObjectAt(Vector2 pos, string objectName, float tolerance = 0.5f)
+        {
+            ObjectReal best = null;
+            float bestSqr = tolerance * tolerance;
+            foreach (var obj in Objects())
+            {
+                if (objectName != null && obj.objectName != objectName)
+                    continue;
+                if (obj.tr == null)
+                    continue;
+                float d = ((Vector2)obj.tr.position - pos).sqrMagnitude;
+                if (d <= bestSqr)
+                {
+                    best = obj;
+                    bestSqr = d;
+                }
+            }
+            return best;
+        }
+
+        public static ObjectReal FindObjectReal(int uid)
+        {
+            foreach (var obj in Objects())
+                if (obj.UID == uid)
+                    return obj;
+            return null;
+        }
+
+        public static void DestroyObject(int uid)
+        {
+            var obj = FindObjectReal(uid);
+            if (obj == null)
+                throw new ArgumentException($"no object with uid {uid}");
+            obj.DestroyMe(null);
+        }
+
         public static void OpenDoor(int uid, Agent byAgent = null)
         {
             var door = FindDoor(uid);
             if (door == null)
                 throw new ArgumentException($"no door with uid {uid}");
             door.OpenDoor(byAgent);
+        }
+
+        public static bool LockDoor(int uid, bool locked)
+        {
+            var door = FindDoor(uid);
+            if (door == null)
+                throw new ArgumentException($"no door with uid {uid}");
+            if (locked) door.Lock(); else door.Unlock();
+            return door.locked;
         }
 
         public static string Summary()

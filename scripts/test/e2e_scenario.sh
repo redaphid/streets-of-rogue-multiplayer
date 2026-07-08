@@ -106,6 +106,22 @@ DOOR=$(cmd ecs0 doors | grep "door uid=" | head -1)
 DUID=$(echo "$DOOR" | grep -o 'uid=[0-9]*' | cut -d= -f2)
 cmd ecs0 "opendoor $DUID $AUID" >/dev/null
 waitlog ecs1 "opened by peer" 30 && ok "B opened the same door" || fail "B opened the same door"
+cmd ecs0 "lockdoor $DUID" >/dev/null
+waitlog ecs1 ") locked by peer" 30 && ok "B locked the same door" || fail "B locked the same door"
+cmd ecs0 "lockdoor $DUID off" >/dev/null
+waitlog ecs1 "unlocked by peer" 30 && ok "B unlocked the same door" || fail "B unlocked the same door"
+
+echo "[5b] object destruction (position addressed)"
+OBJ=$(cmd ecs0 objects | grep "object uid=" | grep "destroying=False" | head -1)
+OUID=$(echo "$OBJ" | grep -o 'uid=[0-9]*' | cut -d= -f2)
+ONAME=$(echo "$OBJ" | grep -o "'[^']*'" | tr -d "'")
+if [ -z "$OUID" ]; then
+  fail "found a destructible object on A"
+else
+  ok "found object '$ONAME' (uid $OUID) on A"
+  cmd ecs0 "destroyobj $OUID" >/dev/null
+  waitlog ecs1 "object '$ONAME' at .* destroyed by peer" 30 && ok "B destroyed its '$ONAME' twin" || fail "B destroyed its '$ONAME' twin"
+fi
 
 echo "[6/8] ground item round trip"
 cmd ecs0 "give $AUID Banana 2" >/dev/null
@@ -162,6 +178,13 @@ if [ -n "${AVUID:-}" ]; then
 else
   fail "player death propagates (no avatar uid)"
 fi
+
+echo "[11/11] status effect sync"
+cmd ecs0 "status $AUID Fast" >/dev/null
+waitlog ecs1 "status 'Fast' on applied" 30 && ok "A's Fast status applied to avatar on B" || fail "A's Fast status applied to avatar on B"
+cmd ecs1 "agents" | grep "'E2EA'" >/dev/null   # avatar still alive sanity
+cmd ecs0 "status $AUID Fast off" >/dev/null
+waitlog ecs1 "status 'Fast' off applied" 30 && ok "A's Fast removal applied to avatar on B" || fail "A's Fast removal applied to avatar on B"
 
 echo
 echo "RESULT: $PASS passed, $FAIL failed"

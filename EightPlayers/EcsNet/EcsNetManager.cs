@@ -107,6 +107,25 @@ namespace EightPlayers.EcsNet
                 _npcs.MarkNpcHealth(agent);
         }
 
+        /// <summary>Called from the Add/RemoveStatusEffect hooks (EcsHooks).</summary>
+        public void OnLocalStatusChanged(Agent agent, string effect, bool on)
+        {
+            if (agent == null || string.IsNullOrEmpty(effect) || !_welcomed)
+                return;
+            // AddStatusEffect can refuse (preventStatusEffects, dead agent,
+            // Dizzy conflicts...) and the hook is a postfix — only publish
+            // "on" when the effect actually landed.
+            if (on && !agent.statusEffects.hasStatusEffect(effect))
+                return;
+            foreach (var lp in _locals)
+                if (ReferenceEquals(lp.Agent, agent) && lp.Entity >= 0)
+                {
+                    _client.Send(Protocol.Event("status",
+                        new JObject { ["e"] = lp.Entity, ["name"] = effect, ["on"] = on }));
+                    return;
+                }
+        }
+
         /// <summary>Called from the SetupDeath choke-point hook (EcsHooks).</summary>
         public void OnAgentDeath(Agent agent)
         {
@@ -392,6 +411,74 @@ namespace EightPlayers.EcsNet
                     return;
                 }
 
+                case "door-lock":
+                {
+                    var x = (float?)msg.EventData?["x"];
+                    var y = (float?)msg.EventData?["y"];
+                    var locked = (bool?)msg.EventData?["locked"] ?? false;
+                    if (x == null || y == null)
+                        return;
+                    var door = GameStateApi.FindDoorAt(new Vector2(x.Value, y.Value));
+                    if (door == null)
+                    {
+                        EightPlayersPlugin.Log.LogWarning(
+                            $"ECSNET door-lock from peer {msg.From} at ({x:0.#},{y:0.#}): no door there locally");
+                        return;
+                    }
+                    try
+                    {
+                        ApplyingRemoteDoor = true;
+                        if (locked) door.Lock(); else door.Unlock();
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET door at ({x:0.#},{y:0.#}) {(locked ? "locked" : "unlocked")} by peer {msg.From} (local uid {door.UID})");
+                    }
+                    catch (Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning($"ECSNET door-lock apply failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        ApplyingRemoteDoor = false;
+                    }
+                    return;
+                }
+
+                case "obj-destroy":
+                {
+                    var x = (float?)msg.EventData?["x"];
+                    var y = (float?)msg.EventData?["y"];
+                    var name = (string)msg.EventData?["name"];
+                    if (x == null || y == null)
+                        return;
+                    var obj = GameStateApi.FindObjectAt(new Vector2(x.Value, y.Value), name);
+                    if (obj == null)
+                    {
+                        // Often benign: chain reactions publish from both
+                        // sides and the loser finds the object already gone.
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET obj-destroy from peer {msg.From}: no '{name}' at ({x:0.#},{y:0.#}) locally (already gone?)");
+                        return;
+                    }
+                    if (obj.destroying)
+                        return;
+                    try
+                    {
+                        ApplyingRemoteObject = true;
+                        obj.DestroyMe(null);
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET object '{name}' at ({x:0.#},{y:0.#}) destroyed by peer {msg.From} (local uid {obj.UID})");
+                    }
+                    catch (Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning($"ECSNET obj-destroy apply failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        ApplyingRemoteObject = false;
+                    }
+                    return;
+                }
+
                 case "pvp-hit":
                 {
                     // Damage aimed at MY player's avatar elsewhere: I am the
@@ -409,6 +496,32 @@ namespace EightPlayers.EcsNet
                                 $"ECSNET pvp hit from peer {msg.From}: {dmg:0.#} hp -> {lp.Agent.health:0.#}");
                             return;
                         }
+                    return;
+                }
+
+                case "status":
+                {
+                    // A remote player's status changed: mirror it on their
+                    // avatar (visual/vanilla effects, no text popups).
+                    var entity = (int?)msg.EventData?["e"] ?? -1;
+                    var name = (string)msg.EventData?["name"];
+                    var on = (bool?)msg.EventData?["on"] ?? false;
+                    var target = _avatars.GetAgentFor(entity);
+                    if (target == null || string.IsNullOrEmpty(name) || target.dead)
+                        return;
+                    try
+                    {
+                        if (on)
+                            target.statusEffects.AddStatusEffect(name, showText: false);
+                        else
+                            target.statusEffects.RemoveStatusEffect(name, showText: false, playSound: false);
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET status '{name}' {(on ? "on" : "off")} applied to avatar (entity {entity})");
+                    }
+                    catch (Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning($"ECSNET status apply failed: {ex.GetType().Name}: {ex.Message}");
+                    }
                     return;
                 }
 
@@ -562,6 +675,33 @@ namespace EightPlayers.EcsNet
                 return;
             Vector2 p = door.tr.position;
             _client.Send(Protocol.Event("door-open", new JObject { ["x"] = p.x, ["y"] = p.y }));
+        }
+
+        /// <summary>True while a remote door event is being applied locally,
+        /// so the Lock/Unlock hooks don't echo it back into the room.</summary>
+        public static bool ApplyingRemoteDoor;
+
+        /// <summary>Same suppression for the ObjectReal.DestroyMe hook.</summary>
+        public static bool ApplyingRemoteObject;
+
+        /// <summary>Called from the ObjectReal.DestroyMe hook (EcsHooks).</summary>
+        public void OnLocalObjectDestroyed(ObjectReal obj)
+        {
+            if (!_welcomed || obj == null || obj.tr == null)
+                return;
+            Vector2 p = obj.tr.position;
+            _client.Send(Protocol.Event("obj-destroy",
+                new JObject { ["x"] = p.x, ["y"] = p.y, ["name"] = obj.objectName }));
+        }
+
+        /// <summary>Called from the Door.Lock/Unlock hooks (EcsHooks).</summary>
+        public void OnLocalDoorLock(Door door, bool locked)
+        {
+            if (!_welcomed || door == null || door.tr == null)
+                return;
+            Vector2 p = door.tr.position;
+            _client.Send(Protocol.Event("door-lock",
+                new JObject { ["x"] = p.x, ["y"] = p.y, ["locked"] = locked }));
         }
 
         private void ApplyComponents(int e, JObject components)
