@@ -195,7 +195,12 @@ namespace EightPlayers.EcsNet
                 PublishLocalPlayers();
             }
 
-            if (EightPlayersPlugin.EcsRealAvatars.Value)
+            // The loader owns the world during level loads: spawning or
+            // despawning avatar agents mid-load kills the game's own load
+            // coroutine (WaitForRealStart died in AwakenObjects with a
+            // half-bound StatusEffectDisplay). ECS state keeps updating;
+            // game mutations wait for WorldStable.
+            if (EightPlayersPlugin.EcsRealAvatars.Value && WorldStable)
             {
                 _avatars.Sync(_world, _myClientId, LocalLevel());
                 _avatars.Drive();
@@ -382,6 +387,12 @@ namespace EightPlayers.EcsNet
         // instances; a missing UID just means we're not in that level yet.
         private void ApplyEvent(ServerMsg msg)
         {
+            // Every event case mutates live game state; mid-load the targets
+            // don't exist yet (or belong to the dying level) and touching
+            // them can kill the load coroutine. Dropped events are fine:
+            // component state (hp, level, layout) reconverges after load.
+            if (!WorldStable)
+                return;
             switch (msg.Kind)
             {
                 case "door-open":

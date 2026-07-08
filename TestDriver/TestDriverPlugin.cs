@@ -23,7 +23,6 @@ namespace SorTestDriver
         private string mode, addr, port, playerName, reportPath;
         private string state = "boot";
         private float nextAttempt, nextReport, started;
-        private bool triedAccept;
         private int exceptionCount;
 
         private void Awake()
@@ -159,28 +158,29 @@ namespace SorTestDriver
                     break;
 
                 case "in-game":
-                    // Auto-accept the default character whenever the select
-                    // screen opens. AcceptChoice silently fails without a
-                    // UI-picked slot (choiceAccepted[0] never flips), and the
-                    // stuck openedCharacterSelect flag gates ALL player
-                    // movement — so try one real accept, then force the flag.
+                    // Character select handling has to serve two flows:
+                    // 1. TRANSITION selects (mid-load, loadCompleteReally
+                    //    false): keep retrying AcceptChoice — the accept is
+                    //    what lets the load complete, and it succeeds there
+                    //    (a slot carries over). Never touch the flag mid-load
+                    //    (clearing it wedges generation: agents=1 objects=0).
+                    // 2. BOOT stale select (load complete, accept impossible
+                    //    because no UI-picked slot): clear the flag, which
+                    //    otherwise gates ALL player movement.
                     if (now >= nextAttempt && gc.mainGUI != null && gc.mainGUI.openedCharacterSelect)
                     {
                         nextAttempt = now + 3f;
                         var cs = gc.mainGUI.characterSelectScript;
-                        if (!triedAccept && cs != null && cs.choiceAccepted != null
+                        if (cs != null && cs.choiceAccepted != null
                             && cs.choiceAccepted.Length > 0 && !cs.choiceAccepted[0])
                         {
-                            triedAccept = true;
                             cs.AcceptChoice(0);
                             Report("accepted-character");
                         }
-                        else if (gc.loadCompleteReally)
+                        if (gc.loadCompleteReally && gc.mainGUI.openedCharacterSelect
+                            && cs != null && cs.choiceAccepted != null
+                            && cs.choiceAccepted.Length > 0 && !cs.choiceAccepted[0])
                         {
-                            // Clear the stale movement-gating flag — but ONLY
-                            // once the level is fully loaded. Clearing during
-                            // a level transition diverts the load flow and the
-                            // level generates empty (agents=1, objects=0).
                             gc.mainGUI.openedCharacterSelect = false;
                             Report("cleared-character-select-flag");
                         }

@@ -300,6 +300,27 @@ namespace EightPlayers
         private static bool Prefix() => NoSteamFallback_Patch.SteamUp();
     }
 
+    // A StatusEffectDisplay HUD widget can survive a level teardown and get
+    // awakened (GameController.AwakenObjects) before the new level's player
+    // is bound to its NonClickableGUI. Its RealStartB then NREs INSIDE the
+    // WaitForRealStart load coroutine, killing it — the level generates
+    // empty (agents=1, objects=0) and the game wedges forever. Observed
+    // repeatedly in solo level transitions with the ECS layer active. A
+    // stale HUD widget must not kill level loading: log and swallow; the
+    // widget re-binds on the next RealStart pass.
+    [HarmonyPatch(typeof(StatusEffectDisplay), "RealStartB")]
+    internal static class StatusDisplayLoadGuard_Patch
+    {
+        private static System.Exception Finalizer(System.Exception __exception, StatusEffectDisplay __instance)
+        {
+            if (__exception != null)
+                EightPlayersPlugin.Log.LogWarning(
+                    $"StatusEffectDisplay.RealStartB threw {__exception.GetType().Name} on '{__instance?.name}' "
+                    + $"(parent '{__instance?.transform?.parent?.name}') - suppressed so the level load survives");
+            return null;
+        }
+    }
+
     // The multiplayer menu contains a fully functional LAN (direct IP host/join) page
     // that the developers hide at menu setup, shuffling the remaining buttons up to
     // close the gap. Un-hide it and restore the original button positions.
