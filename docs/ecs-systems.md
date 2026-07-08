@@ -265,31 +265,59 @@ local player, who can't act mid-load.
   e2e-asserted; the assertion turns silent divergence into a loud early
   failure and the heal makes real sessions self-correct.
 
-## World-object entities (`wobj` component)  *(added 2026-07-08)*
+## World-object layout (`wlayout` component)  *(added 2026-07-08)*
 
 - Architecture shift (user-approved): stop DEPENDING on same-seed
   generation determinism — make the authority's generated object layout
   authoritative room state. This is also what lets the planned JS client
-  render the world without running Unity.
-- Publish: the NPC-authority client (lowest id) sends one entity per door
-  and destructible ObjectReal after level load:
-  `wobj {kind: door|obj, type, x, y, lv}`. The DO persists them
-  (snapshot-visible to late joiners) and auto-despawns them if the
-  authority disconnects (next authority republishes).
-- Reconcile (ALL clients, incl. the publisher, which receives its own
-  spawns back): match each wobj to a local twin by kind/type + nearest
-  position; keep `entity <-> PlayfieldObject` maps. Logged as
+  render the world without running Unity (whole map in one read).
+- Publish: the NPC-authority client (lowest id) sends ONE entity per
+  level after load: `wlayout {lv, objs: [{k: door|obj, t, x, y}, ...]}`
+  (~250–600 records). The DO persists it (snapshot-visible to late
+  joiners) and auto-despawns it if the authority disconnects (the next
+  authority republishes). Other levels' layout entities are retired on
+  republish.
+  **Why one entity**: the first design published one entity PER object;
+  the ~300-message spawn/ack burst around level loads reliably wedged the
+  game's own loader in solo mode (see load hardening below). Found by dll
+  bisect + a `SOR_WOBJ=0` env kill-switch (which remains available).
+- Reconcile (ALL clients, incl. the publisher, via its own spawn echo):
+  match each layout record to a local twin by kind/type + nearest
+  position; keep `index <-> PlayfieldObject` maps. Logged as
   `wobj reconcile: matched=X missingLocal=Y extraLocal=Z`. v1 does not
-  spawn/remove local objects to close a diff — divergence is visible in
-  the counts and still healed by the level reload; the maps make
-  entity-addressed events immune to residual drift.
+  spawn/remove local objects to close a diff — divergence stays visible
+  in the counts and is still healed by the level reload; the maps make
+  index-addressed events immune to residual drift.
 - Event migration: door-open / door-lock / obj-destroy payloads carry the
-  wobj entity id (`e`) when the sender's reconcile map has one; receivers
-  prefer `ObjectFor(e)` and fall back to position lookup. Fire keeps pure
+  layout index (`wi`) when the sender's reconcile map has one; receivers
+  prefer `ObjectAt(wi)` and fall back to position lookup. Fire keeps pure
   positional addressing (fires are transient, not generation objects).
-- Debug: `entities | grep wobj`, `ecsget <e>`.
-- e2e: [2d] wobj entity count >100 and equal on both instances; both
-  sides logged a reconcile.
+- Debug: `entities | grep wlayout`, `ecsget <e>`.
+- e2e: [2d] exactly one wlayout entity on both instances; both sides
+  reconcile the same matched count (>100).
+
+## Level-load hardening  *(added 2026-07-08)*
+
+Solo level transitions wedged forever (level generates empty: agents=1,
+objects=0) until three protections landed — all three matter:
+
+1. **StatusEffectDisplay guard**: a HUD widget survives level teardown and
+   `GameController.AwakenObjects` runs its `RealStartB` before the new
+   player is bound to `NonClickableGUI` — the NRE kills the
+   `WaitForRealStart` LOAD COROUTINE itself. A Harmony finalizer logs and
+   swallows it (the widget re-binds on the next RealStart pass). It fires
+   on EVERY solo transition (2×/instance per gate run).
+2. **Loader isolation**: avatar Sync/Drive and ALL room-event applies wait
+   for `WorldStable` — the loader owns the world during loads; dropped
+   events reconverge via components (hp, level, layout).
+3. **randomListTable repair**: the partial-table guard's clear now also
+   resets `RandomSelection.setupRandomness`, otherwise a mid-session clear
+   leaves the table EMPTY and `loadStuff2` dies on
+   `randomListTable["SyringeContents"]`.
+
+TestDriver corollary: transition char-selects NEED `AcceptChoice` retries
+to finish loading (a slot carries over, so it succeeds there), and the
+stale-flag clear (movement gate) must only run post-load.
 
 ## Known non-determinism (accepted)
 
