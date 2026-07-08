@@ -31,10 +31,12 @@ namespace EightPlayers
         internal static ConfigEntry<bool> EcsSuppressDynamicSpawns;
         internal static ConfigEntry<bool> TraceEnabled;
         internal static ManualLogSource Log;
+        internal static EightPlayersPlugin Instance;
 
         private void Awake()
         {
             Log = Logger;
+            Instance = this;
             MaxPlayers = Config.Bind("General", "MaxPlayers", 8,
                 new ConfigDescription("Maximum total players in an online game (vanilla: 4)", new AcceptableValueRange<int>(2, 16)));
             ShowLanMenu = Config.Bind("General", "ShowLanMenu", true,

@@ -103,6 +103,19 @@ namespace EightPlayers
                     Out($"screenshot requested -> {path} (written by the game next frame)");
                     break;
                 }
+                case "record":
+                {
+                    // record <seconds> <fps> [dirname] — frame sequence via the
+                    // game's own framebuffer (compositor-independent); encode
+                    // externally with ffmpeg. Paths resolve to the game's
+                    // <Data> dir; the dir must already exist.
+                    float secs = float.Parse(parts[1]);
+                    int fps = int.Parse(parts[2]);
+                    string dir = parts.Length > 3 ? parts[3] : "rec";
+                    EightPlayersPlugin.Instance.StartCoroutine(RecordFrames(secs, fps, dir));
+                    Out($"recording {secs}s at {fps}fps into {dir}/");
+                    break;
+                }
                 case "room":
                     EcsNet.EcsNetManager.Instance?.JoinRoom(parts[1]);
                     Out($"joining room {parts[1].ToUpperInvariant()}");
@@ -402,6 +415,18 @@ namespace EightPlayers
         {
             int n = P0.controllers.maps.SetMapsEnabled(state, ControllerType.Joystick, category);
             Out($"category '{category}' -> {(state ? "on" : "off")} ({n} map(s))");
+        }
+
+        private static System.Collections.IEnumerator RecordFrames(float seconds, int fps, string dir)
+        {
+            int total = (int)(seconds * fps);
+            var wait = new UnityEngine.WaitForSecondsRealtime(1f / fps);
+            for (int i = 0; i < total; i++)
+            {
+                UnityEngine.ScreenCapture.CaptureScreenshot($"{dir}/f{i:D5}.png");
+                yield return wait;
+            }
+            Out($"recording done: {total} frames in {dir}/");
         }
 
         private static void Out(string line)

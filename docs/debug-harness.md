@@ -107,8 +107,23 @@ cmd $A agents               # verify the hit landed
 - `screenshot [file.png]` — `ScreenCapture.CaptureScreenshot`; relative
   paths land in the REAL game dir's `StreetsOfRogueLinux_Data/` (clones
   symlink Data). Needs a graphical instance.
-- Video: record the window with ffmpeg x11grab while driving via commands
-  (see task notes in outputs/).
+- `record <seconds> <fps> [dir]` — frame sequence from the game's own
+  framebuffer (compositor-independent — x11grab shows BLACK under
+  rootless XWayland/Wayland, and GNOME's Screencast dbus dies with the
+  calling connection). Pre-create `<gamedir>/StreetsOfRogueLinux_Data/<dir>`,
+  then encode + clean:
+  `ffmpeg -framerate <fps> -i .../<dir>/f%05d.png -c:v libx264 -pix_fmt yuv420p out.mp4`
+  (10 fps ≈ 3.3 MB/s of PNGs — delete the frames after encoding).
+
+### Movement gates (why the character "won't move")
+
+`Movement.PlayerMovement` is gated by a pile of flags; `input` dumps them
+all. Ones that bite under automation:
+- `gc.mainGUI.openedCharacterSelect` stuck true (no visible overlay!) —
+  the TestDriver now clears it after one accept attempt.
+- `cantPressButtons` while the level-start READ THIS brief is open — the
+  TestDriver now dismisses it.
+- In solo test mode the driver also sets `mustSelectCharacter=false`.
 
 ## 3. Logs and monitoring
 
