@@ -23,6 +23,7 @@ namespace SorTestDriver
         private string mode, addr, port, playerName, reportPath;
         private string state = "boot";
         private float nextAttempt, nextReport, started;
+        private bool triedAccept;
         private int exceptionCount;
 
         private void Awake()
@@ -105,6 +106,12 @@ namespace SorTestDriver
                     // one-player offline game.
                     try
                     {
+                        // The in-level character-select overlay never closes
+                        // under automation (AcceptChoice needs a UI-selected
+                        // slot) and its openedCharacterSelect flag gates ALL
+                        // player movement — skip it and play the default char.
+                        if (gc.sessionDataBig != null)
+                            gc.sessionDataBig.mustSelectCharacter = false;
                         gc.menuGUI.PressedStartGame(1);
                         Report("pressed-startgame-solo");
                         state = "in-game";
@@ -152,16 +159,39 @@ namespace SorTestDriver
                     break;
 
                 case "in-game":
-                    // Auto-accept the default character whenever the select screen opens
+                    // Auto-accept the default character whenever the select
+                    // screen opens. AcceptChoice silently fails without a
+                    // UI-picked slot (choiceAccepted[0] never flips), and the
+                    // stuck openedCharacterSelect flag gates ALL player
+                    // movement — so try one real accept, then force the flag.
                     if (now >= nextAttempt && gc.mainGUI != null && gc.mainGUI.openedCharacterSelect)
                     {
+                        nextAttempt = now + 3f;
                         var cs = gc.mainGUI.characterSelectScript;
-                        if (cs != null && cs.choiceAccepted != null && cs.choiceAccepted.Length > 0 && !cs.choiceAccepted[0])
+                        if (!triedAccept && cs != null && cs.choiceAccepted != null
+                            && cs.choiceAccepted.Length > 0 && !cs.choiceAccepted[0])
                         {
-                            nextAttempt = now + 3f;
+                            triedAccept = true;
                             cs.AcceptChoice(0);
                             Report("accepted-character");
                         }
+                        else
+                        {
+                            gc.mainGUI.openedCharacterSelect = false;
+                            Report("cleared-character-select-flag");
+                        }
+                    }
+                    // Dismiss the level-start "READ THIS" mission brief: it
+                    // holds cantPressButtons (= no movement) until a human
+                    // clicks it away.
+                    if (now >= nextAttempt && gc.mainGUI != null && gc.mainGUI.menuGUI != null
+                        && gc.mainGUI.menuGUI.readThis != null && gc.mainGUI.menuGUI.readThis.activeSelf)
+                    {
+                        nextAttempt = now + 3f;
+                        gc.mainGUI.menuGUI.CloseReadThis();
+                        if (gc.playerControl != null)
+                            gc.playerControl.cantPressButtons = false;
+                        Report("closed-read-this");
                     }
                     break;
             }

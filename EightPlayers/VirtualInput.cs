@@ -53,9 +53,19 @@ namespace EightPlayers
         {
             var gc = GameController.gameController;
             var agent = gc?.playerAgent;
+            var pc = gc?.playerControl;
             Vector2 p = agent != null ? (Vector2)agent.tr.position : Vector2.zero;
             string mode = _target != null ? $"walkto {_target.Value}" : (Time.unscaledTime < _dirUntil ? $"move {_dir}" : "idle");
-            return $"virtualinput {mode} buttons={_buttonsUntil.Count} playerPos=({p.x:0.##},{p.y:0.##})";
+            string gates = "";
+            if (agent != null && pc != null)
+            {
+                gates = $" ctrl={agent.controllerType} axis=({pc.heldAxisX[0]:0.#},{pc.heldAxisY[0]:0.#})"
+                    + $" cantPress={pc.cantPressButtons} cantP={pc.cantPressGameplayButtonsP[0]} cantPB={pc.cantPressGameplayButtonsPB[0]}"
+                    + $" walking={agent.walking} timeScale={Time.timeScale:0.##}"
+                    + $" inv={agent.mainGUI?.openedInventory} charSel={gc.mainGUI?.openedCharacterSelect}"
+                    + $" teleporting={agent.teleporting} frozen={agent.frozen}";
+            }
+            return $"virtualinput {mode} buttons={_buttonsUntil.Count} playerPos=({p.x:0.##},{p.y:0.##}){gates}";
         }
 
         // Runs after PlayerControl.Update each frame (see patch below).
