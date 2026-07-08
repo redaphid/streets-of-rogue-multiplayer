@@ -284,6 +284,23 @@ local player, who can't act mid-load.
 - e2e: [6b] both sides seed the same container with a Banana; A takes it;
   B's copy loses it.
 
+## Shop purchases (`shop-take` event)  *(added 2026-07-08)*
+
+- Choke: `ObjectMult.TakeItemFromShop(Agent, string, bool)` — vanilla's
+  wire entry for buying/taking from a shopkeeper's inventory (regular or
+  `specialInvDatabase`). Same no-op-outside-Mirror property as chest-take.
+  Publishes for local buyers only.
+- Wire: `shop-take {ni, item, special}` — the SELLER is addressed by NPC
+  registry index (`NpcSync.IndexFor/AgentAt`), which is spawn-order
+  aligned on every client and therefore drift-immune. Non-registry
+  sellers (custom spawns) are skipped.
+- Apply mirrors vanilla's `RpcTakeItemFromShop` receiver: FindItem →
+  DestroyItem on the right database; already-gone no-ops.
+- Debug verb: `shoptake <uid> <item>` (runs the real wire entry); `give`
+  seeds a seller's inventory.
+- e2e: [6c] both sides give the same-index NPC a Banana; A shop-takes it;
+  B's twin loses it.
+
 ## Equipped weapon (`weapon` component)  *(added 2026-07-08)*
 
 - Choke: `InvDatabase.EquipWeapon(InvItem, bool)` master (the 1-arg

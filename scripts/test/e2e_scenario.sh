@@ -174,6 +174,21 @@ else
   waitlog ecs1 "chest item 'Banana' taken by peer" 30 && ok "B's container lost the Banana" || fail "B's container lost the Banana"
 fi
 
+echo "[6c] shop purchase sync (NPC-index addressed)"
+SNPC=$(cmd ecs0 npcs | grep 'dead=False' | grep -v 'entity=-1' | head -1)
+SIDX=$(echo "$SNPC" | grep -o 'npc\[[0-9]*\]' | tr -d 'npc[]')
+SUID=$(echo "$SNPC" | grep -o 'uid=[0-9]*' | cut -d= -f2)
+BSUID=$(cmd ecs1 npcs | grep "npc\[$SIDX\]" | grep -o 'uid=[0-9]*' | head -1 | cut -d= -f2)
+if [ -z "$SUID" ] || [ -z "$BSUID" ]; then
+  fail "matched shop NPC on both (A=$SUID B=$BSUID idx=$SIDX)"
+else
+  ok "matched shop NPC on both (idx $SIDX, A uid=$SUID, B uid=$BSUID)"
+  cmd ecs0 "give $SUID Banana" >/dev/null
+  cmd ecs1 "give $BSUID Banana" >/dev/null
+  cmd ecs0 "shoptake $SUID Banana" >/dev/null
+  waitlog ecs1 "shop item 'Banana' taken by peer" 30 && ok "B's shopkeeper lost the Banana" || fail "B's shopkeeper lost the Banana"
+fi
+
 echo "[7/8] NPC sync: convergence + death"
 sleep 10
 NPC=$(cmd ecs0 npcs | grep "npc\[" | grep "dead=False" | grep -v "entity=-1" | head -1)

@@ -90,6 +90,14 @@ namespace EightPlayers.EcsNet
             _byIndex.Add(agent);
         }
 
+        /// <summary>Drift-immune NPC addressing for events (registries are
+        /// spawn-order aligned on every client).</summary>
+        public int IndexFor(Agent agent) =>
+            agent != null && _indexByAgent.TryGetValue(agent, out var i) ? i : -1;
+
+        public Agent AgentAt(int index) =>
+            index >= 0 && index < _byIndex.Count ? _byIndex[index] : null;
+
         /// <summary>Authority only: register a post-load (dynamic) NPC spawn.</summary>
         public void RegisterDynamic(Agent agent)
         {

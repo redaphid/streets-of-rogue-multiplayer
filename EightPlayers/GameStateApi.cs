@@ -281,6 +281,22 @@ namespace EightPlayers
             obj.DestroyMe(null);
         }
 
+        /// <summary>Take an item from a shopkeeper-style agent inventory via
+        /// vanilla's wire entry (TakeItemFromShop no-ops outside Mirror; the
+        /// ECS hook publishes from it).</summary>
+        public static void ShopTake(int uid, string itemName)
+        {
+            var seller = Require(uid);
+            InvItem item = null;
+            foreach (var it in seller.inventory.InvItemList)
+                if (it != null && it.invItemName == itemName)
+                    item = it;
+            if (item == null)
+                throw new ArgumentException($"agent {uid} has no '{itemName}'");
+            GC.playerAgent.objectMult.TakeItemFromShop(seller, itemName, specialDatabase: false);
+            seller.inventory.DestroyItem(item);
+        }
+
         /// <summary>Objects with their own inventory (shelves, chests, safes...).</summary>
         public static IEnumerable<ObjectReal> Containers()
         {

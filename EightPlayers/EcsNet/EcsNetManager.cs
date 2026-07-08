@@ -598,6 +598,37 @@ namespace EightPlayers.EcsNet
                     return;
                 }
 
+                case "shop-take":
+                {
+                    var ni = (int?)msg.EventData?["ni"] ?? -1;
+                    var itemName = (string)msg.EventData?["item"];
+                    var special = (bool?)msg.EventData?["special"] ?? false;
+                    if (ni < 0 || string.IsNullOrEmpty(itemName))
+                        return;
+                    var seller = _npcs.AgentAt(ni);
+                    if (seller == null || seller.inventory == null)
+                    {
+                        EightPlayersPlugin.Log.LogWarning(
+                            $"ECSNET shop-take from peer {msg.From}: no npc[{ni}] locally");
+                        return;
+                    }
+                    try
+                    {
+                        // Mirror of vanilla's RpcTakeItemFromShop receiver.
+                        var db = special ? seller.specialInvDatabase : seller.inventory;
+                        var invItem = db?.FindItem(itemName);
+                        if (invItem != null)
+                            db.DestroyItem(invItem);
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET shop item '{itemName}' taken by peer {msg.From} (npc[{ni}]{(invItem == null ? ", already gone" : "")})");
+                    }
+                    catch (Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning($"ECSNET shop-take apply failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    return;
+                }
+
                 case "pvp-hit":
                 {
                     // Damage aimed at MY player's avatar elsewhere: I am the
@@ -915,6 +946,18 @@ namespace EightPlayers.EcsNet
             Vector2 p = chest.tr.position;
             _client.Send(Protocol.Event("chest-take", WithWobjEntity(chest,
                 new JObject { ["x"] = p.x, ["y"] = p.y, ["name"] = chest.objectName, ["item"] = itemName })));
+        }
+
+        /// <summary>Called from the TakeItemFromShop hook (EcsHooks).</summary>
+        public void OnLocalShopTake(Agent seller, string itemName, bool specialDatabase)
+        {
+            if (!_welcomed || seller == null || string.IsNullOrEmpty(itemName) || !WorldStable)
+                return;
+            int ni = _npcs.IndexFor(seller);
+            if (ni < 0)
+                return; // not a registry NPC (custom spawn) — nothing drift-safe to address
+            _client.Send(Protocol.Event("shop-take",
+                new JObject { ["ni"] = ni, ["item"] = itemName, ["special"] = specialDatabase }));
         }
 
         /// <summary>Called from the Door.Lock/Unlock hooks (EcsHooks).</summary>

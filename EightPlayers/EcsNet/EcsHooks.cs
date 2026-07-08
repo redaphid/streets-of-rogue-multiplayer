@@ -236,6 +236,18 @@ namespace EightPlayers.EcsNet
         }
     }
 
+    // Shop purchases: same vanilla wire-entry pattern as chest looting.
+    [HarmonyPatch(typeof(ObjectMult), "TakeItemFromShop", typeof(Agent), typeof(string), typeof(bool))]
+    internal static class EcsShopTakeHook_Patch
+    {
+        private static void Postfix(ObjectMult __instance, Agent myAgent, string itemName, bool specialDatabase)
+        {
+            var buyer = __instance.agent;
+            if (buyer != null && buyer.localPlayer && myAgent != null)
+                EcsNetManager.Instance?.OnLocalShopTake(myAgent, itemName, specialDatabase);
+        }
+    }
+
     // Publish weapon equips by LOCAL players (avatars equip through the same
     // method but aren't local players, so no echo loop).
     [HarmonyPatch(typeof(InvDatabase), "EquipWeapon", typeof(InvItem), typeof(bool))]

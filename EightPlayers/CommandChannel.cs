@@ -226,6 +226,10 @@ namespace EightPlayers
                     GameStateApi.ChestGive(ParseVec(parts[1], parts[2]), parts[3]);
                     Out($"container at {parts[1]},{parts[2]} given {parts[3]}");
                     break;
+                case "shoptake":
+                    GameStateApi.ShopTake(int.Parse(parts[1]), parts[2]);
+                    Out($"took {parts[2]} from agent {parts[1]}");
+                    break;
                 case "chesttake":
                     GameStateApi.ChestTake(ParseVec(parts[1], parts[2]), parts[3]);
                     Out($"took {parts[3]} from container at {parts[1]},{parts[2]}");
