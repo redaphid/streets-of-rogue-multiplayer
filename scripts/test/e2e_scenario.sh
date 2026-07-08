@@ -195,6 +195,17 @@ for _ in $(seq 1 240); do
 done
 [ "$RESPAWNED" -eq 0 ] && ok "avatars respawned on level 2" || fail "avatars respawned on level 2"
 
+echo "[8b] level-2 hash convergence (allow one heal cycle)"
+CONV=1
+for _ in $(seq 1 30); do
+  HA=$(cmd ecs0 worldhash | grep -o 'worldhash [0-9a-f]*' | cut -d' ' -f2)
+  HB=$(cmd ecs1 worldhash | grep -o 'worldhash [0-9a-f]*' | cut -d' ' -f2)
+  [ -n "$HA" ] && [ "$HA" != "00000000" ] && [ "$HA" = "$HB" ] && CONV=0 && break
+  sleep 3
+done
+[ "$CONV" -eq 0 ] && ok "level-2 hashes converged (A=$HA B=$HB)" || fail "level-2 hashes converged (A=$HA B=$HB)"
+sleep 5   # let avatars respawn on the healed world
+
 echo "[9/9] player-vs-player: hit on avatar lands on the real player"
 sleep 5
 AVUID=$(cmd ecs0 agents | grep "'E2EB'" | grep -o 'uid=[0-9]*' | head -1 | cut -d= -f2)
