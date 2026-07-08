@@ -265,6 +265,32 @@ local player, who can't act mid-load.
   e2e-asserted; the assertion turns silent divergence into a loud early
   failure and the heal makes real sessions self-correct.
 
+## World-object entities (`wobj` component)  *(added 2026-07-08)*
+
+- Architecture shift (user-approved): stop DEPENDING on same-seed
+  generation determinism — make the authority's generated object layout
+  authoritative room state. This is also what lets the planned JS client
+  render the world without running Unity.
+- Publish: the NPC-authority client (lowest id) sends one entity per door
+  and destructible ObjectReal after level load:
+  `wobj {kind: door|obj, type, x, y, lv}`. The DO persists them
+  (snapshot-visible to late joiners) and auto-despawns them if the
+  authority disconnects (next authority republishes).
+- Reconcile (ALL clients, incl. the publisher, which receives its own
+  spawns back): match each wobj to a local twin by kind/type + nearest
+  position; keep `entity <-> PlayfieldObject` maps. Logged as
+  `wobj reconcile: matched=X missingLocal=Y extraLocal=Z`. v1 does not
+  spawn/remove local objects to close a diff — divergence is visible in
+  the counts and still healed by the level reload; the maps make
+  entity-addressed events immune to residual drift.
+- Event migration: door-open / door-lock / obj-destroy payloads carry the
+  wobj entity id (`e`) when the sender's reconcile map has one; receivers
+  prefer `ObjectFor(e)` and fall back to position lookup. Fire keeps pure
+  positional addressing (fires are transient, not generation objects).
+- Debug: `entities | grep wobj`, `ecsget <e>`.
+- e2e: [2d] wobj entity count >100 and equal on both instances; both
+  sides logged a reconcile.
+
 ## Known non-determinism (accepted)
 
 - NPC clothing/loadout CONTENTS diverge between instances (RNG consumption

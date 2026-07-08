@@ -74,6 +74,16 @@ namespace EightPlayers.EcsNet
 
         private void Publish(int level)
         {
+            // Retire the previous level's entities (we own them; if a
+            // previous authority owned them, the DO already despawned them
+            // with that client and rejects our attempt harmlessly).
+            var stale = new List<int>();
+            _world.ForEach<WObj>((e, w) => { if (w.Lv != level) stale.Add(e); });
+            foreach (var e in stale)
+                _mgr.SendDespawn(e);
+            if (stale.Count > 0)
+                EightPlayersPlugin.Log.LogInfo($"ECSNET wobj retired {stale.Count} stale entities");
+
             int n = 0;
             foreach (var door in GameStateApi.Doors())
             {

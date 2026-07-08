@@ -386,13 +386,14 @@ namespace EightPlayers.EcsNet
             {
                 case "door-open":
                 {
-                    // Doors are addressed by position: UIDs drift between
-                    // instances, coordinates don't (identical generation).
+                    // Entity-addressed when the sender's reconcile map had
+                    // the door (drift-immune); position is the fallback.
                     var x = (float?)msg.EventData?["x"];
                     var y = (float?)msg.EventData?["y"];
                     if (x == null || y == null)
                         return;
-                    var door = GameStateApi.FindDoorAt(new Vector2(x.Value, y.Value));
+                    var door = ResolveWobj(msg.EventData) as Door
+                        ?? GameStateApi.FindDoorAt(new Vector2(x.Value, y.Value));
                     if (door == null)
                     {
                         EightPlayersPlugin.Log.LogWarning(
@@ -419,7 +420,8 @@ namespace EightPlayers.EcsNet
                     var locked = (bool?)msg.EventData?["locked"] ?? false;
                     if (x == null || y == null)
                         return;
-                    var door = GameStateApi.FindDoorAt(new Vector2(x.Value, y.Value));
+                    var door = ResolveWobj(msg.EventData) as Door
+                        ?? GameStateApi.FindDoorAt(new Vector2(x.Value, y.Value));
                     if (door == null)
                     {
                         EightPlayersPlugin.Log.LogWarning(
@@ -451,7 +453,8 @@ namespace EightPlayers.EcsNet
                     var name = (string)msg.EventData?["name"];
                     if (x == null || y == null)
                         return;
-                    var obj = GameStateApi.FindObjectAt(new Vector2(x.Value, y.Value), name);
+                    var obj = ResolveWobj(msg.EventData) as ObjectReal
+                        ?? GameStateApi.FindObjectAt(new Vector2(x.Value, y.Value), name);
                     if (obj == null)
                     {
                         // Often benign: chain reactions publish from both
@@ -769,7 +772,27 @@ namespace EightPlayers.EcsNet
             if (!_welcomed || door == null || door.tr == null)
                 return;
             Vector2 p = door.tr.position;
-            _client.Send(Protocol.Event("door-open", new JObject { ["x"] = p.x, ["y"] = p.y }));
+            _client.Send(Protocol.Event("door-open", WithWobjEntity(door,
+                new JObject { ["x"] = p.x, ["y"] = p.y })));
+        }
+
+        /// <summary>Adds the wobj entity id to a world-object event payload
+        /// when reconciliation has one — receivers prefer it over position
+        /// (immune to generation drift). Position stays as the fallback.</summary>
+        private JObject WithWobjEntity(PlayfieldObject obj, JObject payload)
+        {
+            int e = _wobjs != null ? _wobjs.EntityFor(obj) : -1;
+            if (e >= 0)
+                payload["e"] = e;
+            return payload;
+        }
+
+        /// <summary>Receiver side of WithWobjEntity: the local twin from the
+        /// reconcile map, or null (caller falls back to position lookup).</summary>
+        private PlayfieldObject ResolveWobj(JObject eventData)
+        {
+            var e = (int?)eventData?["e"] ?? -1;
+            return e >= 0 && _wobjs != null ? _wobjs.ObjectFor(e) : null;
         }
 
         /// <summary>True while a remote door event is being applied locally,
@@ -823,8 +846,8 @@ namespace EightPlayers.EcsNet
             if (!_welcomed || obj == null || obj.tr == null || !WorldStable)
                 return;
             Vector2 p = obj.tr.position;
-            _client.Send(Protocol.Event("obj-destroy",
-                new JObject { ["x"] = p.x, ["y"] = p.y, ["name"] = obj.objectName }));
+            _client.Send(Protocol.Event("obj-destroy", WithWobjEntity(obj,
+                new JObject { ["x"] = p.x, ["y"] = p.y, ["name"] = obj.objectName })));
         }
 
         /// <summary>Called from the Door.Lock/Unlock hooks (EcsHooks).</summary>
@@ -833,8 +856,8 @@ namespace EightPlayers.EcsNet
             if (!_welcomed || door == null || door.tr == null || !WorldStable)
                 return;
             Vector2 p = door.tr.position;
-            _client.Send(Protocol.Event("door-lock",
-                new JObject { ["x"] = p.x, ["y"] = p.y, ["locked"] = locked }));
+            _client.Send(Protocol.Event("door-lock", WithWobjEntity(door,
+                new JObject { ["x"] = p.x, ["y"] = p.y, ["locked"] = locked })));
         }
 
         private void ApplyComponents(int e, JObject components)
