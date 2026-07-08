@@ -844,10 +844,17 @@ namespace EightPlayers.EcsNet
 
         // ---- debug-harness ECS surface (CommandChannel) ------------------
 
-        /// <summary>Raw component write to any entity we own (the DO rejects
-        /// writes to others'). The harness's generic mutation verb.</summary>
-        public void HarnessSet(int entity, JObject components) =>
+        /// <summary>Raw component write to any entity we own, or any entity's
+        /// shared components like `input` (the DO rejects the rest). The
+        /// harness's generic mutation verb. The server does NOT echo a set
+        /// back to its sender, so merge into the local mirror here too —
+        /// otherwise a self-write (e.g. driving your own player entity's
+        /// `input`) would be invisible to this instance's own systems.</summary>
+        public void HarnessSet(int entity, JObject components)
+        {
             _client.Send(Protocol.Set(entity, components));
+            _world.MergeRaw(entity, components);
+        }
 
         /// <summary>Inject a named event into the room, exactly as a system
         /// publisher would.</summary>
