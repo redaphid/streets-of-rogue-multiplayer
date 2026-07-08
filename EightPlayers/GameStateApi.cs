@@ -346,6 +346,38 @@ namespace EightPlayers
             chest.objectInvDatabase.DestroyItem(item);
         }
 
+        public static Gas FindGasAt(Vector2 pos, float tolerance = 0.6f)
+        {
+            var gc = GC;
+            if (gc == null)
+                return null;
+            Gas best = null;
+            float bestSqr = tolerance * tolerance;
+            foreach (var gas in gc.gasesList)
+            {
+                if (gas == null || gas.tr == null || gas.destroying)
+                    continue;
+                float d = ((Vector2)gas.tr.position - pos).sqrMagnitude;
+                if (d <= bestSqr)
+                {
+                    best = gas;
+                    bestSqr = d;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>Spawn a gas cloud from a source object via the vanilla
+        /// SpawnGas master (contents e.g. Flammable, Poison, Confusion).</summary>
+        public static Gas SpawnGas(ObjectReal source, Vector2 pos, string contents)
+        {
+            var gc = GC;
+            if (gc == null || gc.spawnerMain == null || source == null)
+                throw new InvalidOperationException("no game/source");
+            return gc.spawnerMain.SpawnGas(source, new Vector3(pos.x, pos.y, 0f),
+                new List<string> { contents }, null, spawnOnClients: true);
+        }
+
         public static IEnumerable<Fire> Fires()
         {
             var gc = GC;

@@ -256,6 +256,14 @@ namespace EightPlayers
                     Out($"fires: {n} shown");
                     break;
                 }
+                case "spawngas":
+                {
+                    var src = GameStateApi.FindObjectReal(int.Parse(parts[1]));
+                    if (src == null) { Out($"no object {parts[1]}"); break; }
+                    GameStateApi.SpawnGas(src, src.tr.position, parts.Length > 2 ? parts[2] : "Flammable");
+                    Out($"gas spawned at object {parts[1]}");
+                    break;
+                }
                 case "ignite":
                     GameStateApi.Ignite(ParseVec(parts[1], parts[2]));
                     Out($"fire ignited at {parts[1]},{parts[2]}");

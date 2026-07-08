@@ -539,6 +539,44 @@ namespace EightPlayers.EcsNet
                     return;
                 }
 
+                case "gas-spawn":
+                {
+                    var x = (float?)msg.EventData?["x"];
+                    var y = (float?)msg.EventData?["y"];
+                    var contents = (string)msg.EventData?["contents"];
+                    if (x == null || y == null || string.IsNullOrEmpty(contents))
+                        return;
+                    var pos = new Vector2(x.Value, y.Value);
+                    // Both instances simulate vents — skip if a cloud already
+                    // drifts there.
+                    if (GameStateApi.FindGasAt(pos) != null)
+                        return;
+                    var source = ResolveWobj(msg.EventData) as ObjectReal
+                        ?? GameStateApi.FindObjectAt(pos, null, 3f);
+                    if (source == null)
+                    {
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET gas-spawn from peer {msg.From}: no source object near ({x:0.#},{y:0.#}) locally");
+                        return;
+                    }
+                    try
+                    {
+                        ApplyingRemoteFire = true; // shared flag: suppresses the spawn hook echo
+                        GameStateApi.SpawnGas(source, pos, contents);
+                        EightPlayersPlugin.Log.LogInfo(
+                            $"ECSNET gas '{contents}' spawned by peer {msg.From} at ({x:0.#},{y:0.#})");
+                    }
+                    catch (Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning($"ECSNET gas-spawn apply failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        ApplyingRemoteFire = false;
+                    }
+                    return;
+                }
+
                 case "fire-out":
                 {
                     var x = (float?)msg.EventData?["x"];
@@ -917,6 +955,22 @@ namespace EightPlayers.EcsNet
             Vector2 p = fire.tr.position;
             _client.Send(Protocol.Event("fire-spawn",
                 new JObject { ["x"] = p.x, ["y"] = p.y, ["oil"] = oil }));
+        }
+
+        /// <summary>Called from the SpawnGas hook (EcsHooks).</summary>
+        public void OnLocalGasSpawned(Gas gas, PlayfieldObject source)
+        {
+            if (!_welcomed || gas == null || gas.tr == null || !WorldStable)
+                return;
+            Vector2 p = gas.tr.position;
+            var payload = new JObject
+            {
+                ["x"] = p.x, ["y"] = p.y,
+                ["contents"] = gas.gasEffect,
+            };
+            if (source is ObjectReal srcReal)
+                WithWobjEntity(srcReal, payload);
+            _client.Send(Protocol.Event("gas-spawn", payload));
         }
 
         /// <summary>Called from the Fire.DestroyMe hook (EcsHooks).</summary>

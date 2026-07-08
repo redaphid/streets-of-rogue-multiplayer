@@ -267,6 +267,12 @@ sleep 2
 cmd ecs0 "extinguish $FX $FY" >/dev/null
 waitlog ecs1 "put out by peer" 30 && ok "fire extinguished on B" || fail "fire extinguished on B"
 
+echo "[13/13] gas cloud sync"
+GOBJ=$(cmd ecs0 objects | grep 'object uid=' | grep 'destroying=False' | head -1)
+GUID=$(echo "$GOBJ" | grep -o 'uid=[0-9]*' | cut -d= -f2)
+cmd ecs0 "spawngas $GUID Flammable" >/dev/null
+waitlog ecs1 "gas 'Flammable' spawned by peer" 30 && ok "gas cloud appeared on B" || fail "gas cloud appeared on B"
+
 echo
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
@@ -273,6 +274,21 @@ namespace EightPlayers.EcsNet
         {
             if (__result != null && !neverGoOut && !EcsNetManager.ApplyingRemoteFire)
                 EcsNetManager.Instance?.OnLocalFireSpawned(__result, oilFire);
+        }
+    }
+
+    // Publish new gas clouds from the 5-arg SpawnGas master (non-null result
+    // = actually spawned). Both instances simulate vents, so cross-published
+    // duplicates are handled by the receiver's proximity dedup. Gas
+    // dissipates by time on both sides — no teardown event needed.
+    [HarmonyPatch(typeof(SpawnerMain), "SpawnGas",
+        typeof(PlayfieldObject), typeof(Vector3), typeof(List<string>), typeof(Agent), typeof(bool))]
+    internal static class EcsGasSpawnHook_Patch
+    {
+        private static void Postfix(Gas __result, PlayfieldObject sourceObject)
+        {
+            if (__result != null && !EcsNetManager.ApplyingRemoteFire)
+                EcsNetManager.Instance?.OnLocalGasSpawned(__result, sourceObject);
         }
     }
 

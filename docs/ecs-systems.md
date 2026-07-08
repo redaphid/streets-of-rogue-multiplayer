@@ -284,6 +284,23 @@ local player, who can't act mid-load.
 - e2e: [6b] both sides seed the same container with a Banana; A takes it;
   B's copy loses it.
 
+## Gas clouds (`gas-spawn` event)  *(added 2026-07-08)*
+
+- Choke: `SpawnerMain.SpawnGas(...)` 5-arg master. Non-null result =
+  actually spawned. Publishes with the SOURCE object addressed by wlayout
+  index (`wi`) plus position; contents = the gas effect name.
+- Apply: proximity dedup against `gc.gasesList` (both instances simulate
+  vents), then `SpawnGas` from the resolved source (wi → position →
+  nearest-object-within-3 fallback: gas mainly needs a chunk anchor).
+  Echo suppressed via the shared `ApplyingRemoteFire` flag.
+- No teardown event: gas dissipates by its own timer on both sides.
+  Gas DAMAGE/status effects run locally and converge through the hp and
+  status systems (players owner-authoritative, NPCs authority-owned).
+- Debug verb: `spawngas <objUid> [contents]`.
+- e2e: [13/13] A vents Flammable gas from an object; B's twin gets a
+  cloud. This completes ObjectMult* hub coverage (Fire ✓ Gas ✓ Agent/
+  Item/Object/Playfield verbs ✓ via their respective systems).
+
 ## Shop purchases (`shop-take` event)  *(added 2026-07-08)*
 
 - Choke: `ObjectMult.TakeItemFromShop(Agent, string, bool)` — vanilla's
