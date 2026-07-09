@@ -15,14 +15,20 @@ namespace SorTestDriver
     //   SOR_TEST_PORT   = LAN port                      (default 7777)
     //   SOR_TEST_NAME   = multiplayer player name       (default TestN)
     //   SOR_TEST_REPORT = file to append status lines to
+    //   SOR_TEST_CHAR   = agent name to pick on the character select screen
+    //   SOR_TEST_CAST   = 1: press the special ability every 5s and report state
+    //   SOR_TEST_ACCEPT_DELAY = seconds to leave the select screen open first
     [BepInPlugin("com.hypnodroid.sortestdriver", "SoR Test Driver", "0.1.0")]
     public class TestDriverPlugin : BaseUnityPlugin
     {
         internal static bool TestModeActive;
 
-        private string mode, addr, port, playerName, reportPath;
+        private string mode, addr, port, playerName, reportPath, testChar;
+        private bool castTest;
+        private float acceptDelay;
+        private float charSelectSeen = -1f;
         private string state = "boot";
-        private float nextAttempt, nextReport, started;
+        private float nextAttempt, nextReport, nextCast, started;
         private int exceptionCount;
 
         private void Awake()
@@ -38,6 +44,9 @@ namespace SorTestDriver
             port = Environment.GetEnvironmentVariable("SOR_TEST_PORT") ?? "7777";
             playerName = Environment.GetEnvironmentVariable("SOR_TEST_NAME") ?? "Test" + UnityEngine.Random.Range(100, 999);
             reportPath = Environment.GetEnvironmentVariable("SOR_TEST_REPORT");
+            testChar = Environment.GetEnvironmentVariable("SOR_TEST_CHAR");
+            castTest = Environment.GetEnvironmentVariable("SOR_TEST_CAST") == "1";
+            float.TryParse(Environment.GetEnvironmentVariable("SOR_TEST_ACCEPT_DELAY") ?? "0", out acceptDelay);
             started = Time.realtimeSinceStartup;
             new Harmony("com.hypnodroid.sortestdriver").PatchAll(typeof(TestDriverPlugin).Assembly);
             Report($"driver-start mode={mode} name={playerName} addr={addr}:{port}");
@@ -52,7 +61,10 @@ namespace SorTestDriver
             catch (Exception e)
             {
                 if (exceptionCount++ < 20)
-                    Report($"exception state={state}: {e.GetType().Name} {e.Message}");
+                {
+                    string top = (e.StackTrace ?? "").Split('\n')[0].Trim();
+                    Report($"exception state={state}: {e.GetType().Name} {e.Message} @ {top}");
+                }
             }
         }
 
@@ -120,12 +132,41 @@ namespace SorTestDriver
                         var cs = gc.mainGUI.characterSelectScript;
                         if (cs != null && cs.choiceAccepted != null && cs.choiceAccepted.Length > 0 && !cs.choiceAccepted[0])
                         {
+                            if (charSelectSeen < 0f)
+                            {
+                                charSelectSeen = now;
+                                Report("char-select-open");
+                            }
+                            if (now < charSelectSeen + acceptDelay)
+                                return;
                             nextAttempt = now + 3f;
+                            if (!string.IsNullOrEmpty(testChar) && cs.curSelected != null && cs.curSelected.Length > 0)
+                                cs.curSelected[0] = testChar;
                             cs.AcceptChoice(0);
-                            Report("accepted-character");
+                            Report("accepted-character" + (string.IsNullOrEmpty(testChar) ? "" : " forced=" + testChar));
                         }
                     }
+                    AbilityTick(gc, now);
                     break;
+            }
+        }
+
+        // Reports the player agent's identity/ability state and (SOR_TEST_CAST=1)
+        // presses the special ability on a timer to smoke-test it headlessly.
+        private void AbilityTick(GameController gc, float now)
+        {
+            if (!gc.loadComplete || gc.playerAgent == null || now < nextCast)
+                return;
+            nextCast = now + 5f;
+            var a = gc.playerAgent;
+            var item = a.inventory == null ? null : a.inventory.equippedSpecialAbility;
+            Report($"agent={a.agentName} ability={a.specialAbility ?? "-"}"
+                 + $" abilityCount={(item == null ? "none" : item.invItemCount.ToString())}"
+                 + $" hp={a.health} pos=({a.tr.position.x:F1},{a.tr.position.y:F1})");
+            if (castTest && !string.IsNullOrEmpty(a.specialAbility))
+            {
+                bool used = a.statusEffects.PressedSpecialAbility();
+                Report($"pressed-ability used={used}");
             }
         }
 

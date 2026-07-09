@@ -1,5 +1,14 @@
 # Project handoff / status
 
+## NEW (2026-07-08): WizardMod — standalone Wizard character
+
+`WizardMod/` adds a playable **Wizard** (glass cannon, Chaos Magic =
+random spell per press). Fully verified headless + GUI screenshot;
+dist zips built. **No dependency on EightPlayers.** Details, patch map,
+and the RogueLibs post-mortem (it's dead against this Unity-2022 build):
+see `docs/WIZARD.md`. TestDriver gained `SOR_TEST_CHAR`, `SOR_TEST_CAST`,
+`SOR_TEST_ACCEPT_DELAY` for character/ability e2e tests.
+
 **Goal:** Let up to 8 people play Streets of Rogue in ONE game, across a
 heterogeneous mix of computers — some machines running several game windows
 ("split screen"), each window driven by its own gamepad, all joined over LAN.

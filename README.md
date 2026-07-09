@@ -1,4 +1,14 @@
-# Streets of Rogue — EightPlayers mod
+# Streets of Rogue — EightPlayers + Wizard mods
+
+Two independent BepInEx mods live in this repo:
+
+- **EightPlayers** — up to 8 people in one game (below).
+- **WizardMod** — a new playable character, the **Wizard**, whose Chaos
+  Magic ability casts a random spell every press. Standalone; see
+  [docs/WIZARD.md](docs/WIZARD.md). Ready-to-extract bundles:
+  `dist/SoR-WizardMod-Windows.zip` / `-Linux.zip`.
+
+# EightPlayers mod
 
 Play Streets of Rogue with **up to 8 people in one game**, using any mix of
 computers — including two game windows side by side on one PC so two kids can
@@ -23,7 +33,8 @@ Config file (created after first run):
 
 ## Layout of this project
 
-- `EightPlayers/` — the mod source (BepInEx 5 plugin, Harmony patches)
+- `EightPlayers/` — the 8-player mod source (BepInEx 5 plugin, Harmony patches)
+- `WizardMod/` — the Wizard character mod source (standalone plugin)
 - `TestDriver/` — test-only plugin that auto-hosts/auto-joins LAN games
   (inert unless `SOR_TEST_MODE` is set; safe to delete from `BepInEx/plugins`)
 - `scripts/second-window.sh` — launch an extra game window on this PC
