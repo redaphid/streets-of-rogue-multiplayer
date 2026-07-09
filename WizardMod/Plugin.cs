@@ -21,6 +21,7 @@ namespace WizardMod
             harmony.PatchAll(typeof(WizardCharacter));
             harmony.PatchAll(typeof(ChaosMagicAbility));
             harmony.PatchAll(typeof(WizardBigQuest));
+            harmony.PatchAll(typeof(WizardQuestPanel));
             Log.LogInfo("WizardMod loaded: Wizard character + Chaos Magic ability + Chaos Ascendant big quest");
         }
 

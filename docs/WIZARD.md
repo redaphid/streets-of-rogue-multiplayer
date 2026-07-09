@@ -220,6 +220,22 @@ quest is driven entirely by these patches:
   tallies host-side like vanilla big quests; a remote client playing the
   wizard is untested.
 
+`WizardQuestPanel.cs` — makes the quest text actually show on the map
+screen. `QuestSlotBig.GetQuestInfo()` sets the title/description from
+NameDB, then runs `switch (agent.bigQuest)` to append per-quest progress.
+The Wizard's `bigQuest` (`"Wizard"`) has no case, so it falls into the
+`default:` branch, which **wipes both fields to `""`** — which is why the
+panel was blank despite the NameDB patch supplying the strings.
+- `QuestSlotBig.GetQuestInfo` postfix: runs *after* the default case
+  blanks the text and restores it when `agent.bigQuest == "Wizard"`,
+  re-reading title (`Wizard_BQ`) and description (`D2_Wizard_BQ`, with
+  live "Chaos kills: N/8") from NameDB so it stays consistent with the
+  existing `NameDB.GetName` patch (literal fallbacks if NameDB is empty).
+- Skips on the Mayor's floor, where the vanilla method shows a
+  completed/failed end message and `return`s before the switch (so the
+  default never runs and there is nothing to restore). Whole body is
+  try/catch-guarded.
+
 ### Multiplayer
 
 Effects go exclusively through the game's own synced mechanisms
