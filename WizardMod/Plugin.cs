@@ -20,7 +20,8 @@ namespace WizardMod
             Harmony harmony = new Harmony(GUID);
             harmony.PatchAll(typeof(WizardCharacter));
             harmony.PatchAll(typeof(ChaosMagicAbility));
-            Log.LogInfo("WizardMod loaded: Wizard character + Chaos Magic ability");
+            harmony.PatchAll(typeof(WizardBigQuest));
+            Log.LogInfo("WizardMod loaded: Wizard character + Chaos Magic ability + Chaos Ascendant big quest");
         }
 
         public static byte[] LoadEmbedded(string fileName)

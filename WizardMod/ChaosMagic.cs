@@ -148,7 +148,9 @@ namespace WizardMod
             WizardModPlugin.Log.LogInfo("ChaosMagic: " + type + " bolt");
             a.Say(shout);
             gc.audioHandler.Play(a, "MindControlFire");
-            a.gun.spawnBullet(type, null, -1, specialAbility: true);
+            // Tag the bolt so the Big Quest can credit kills it causes to Chaos Magic.
+            Bullet bolt = a.gun.spawnBullet(type, null, -1, specialAbility: true);
+            if (bolt != null) bolt.cameFromWeapon = WizardBigQuest.BulletTag;
             gc.spawnerMain.SpawnNoise(a.tr.position, 2f, null, null, a);
             try
             {

@@ -75,6 +75,10 @@ namespace WizardMod
                 gc.sessionDataBig.agentUnlocks.Add(unlock);
                 Unlock.agentCount++;
             }
+            // Register the Wizard's Big Quest unlock ("Chaos Ascendant") so the game's
+            // unlock/quest systems recognise it and completion can be recorded.
+            if (!gc.unlocks.IsUnlocked(WizardBigQuest.UnlockName, "BigQuest"))
+                __instance.AddUnlock(WizardBigQuest.UnlockName, "BigQuest", isUnlocked: false);
             WizardModPlugin.Log.LogInfo("Wizard unlock registered (unlocked=" + unlock.unlocked + ")");
         }
 
@@ -94,9 +98,18 @@ namespace WizardMod
                            "doesn't know what comes out next.";
                 return false;
             }
-            if (myName == AgentName + "_BQ" && type == "Unlock")
+            // Big Quest title (shown in the quest panel via bigQuest + "_BQ").
+            if (myName == WizardBigQuest.UnlockName && type == "Unlock")
             {
-                __result = "";
+                __result = "Chaos Ascendant";
+                return false;
+            }
+            // Big Quest description (shown via "D2_" + bigQuest + "_BQ"), with live progress.
+            if (myName == "D2_" + WizardBigQuest.UnlockName && type == "Unlock")
+            {
+                __result = "Slay " + WizardBigQuest.TargetKills + " foes with Chaos Magic. " +
+                           "Prove the arcane bends to your will.\nChaos kills: " +
+                           WizardBigQuest.LocalKills() + "/" + WizardBigQuest.TargetKills;
                 return false;
             }
             if (myName == ChaosMagicAbility.Name && type == "Item")
