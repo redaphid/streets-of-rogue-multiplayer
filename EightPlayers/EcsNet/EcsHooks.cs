@@ -261,6 +261,22 @@ namespace EightPlayers.EcsNet
         }
     }
 
+    // Publish local players' gunfire as cosmetic tracers. spawnBullet sets
+    // the bullet's final rotation before returning, so the postfix sees the
+    // true firing direction. Shotgun pellets each pass through here.
+    [HarmonyPatch(typeof(Gun), "spawnBullet",
+        typeof(bulletStatus), typeof(InvItem), typeof(bool))]
+    internal static class EcsBulletHook_Patch
+    {
+        private static void Postfix(Gun __instance, Bullet __result, bulletStatus bulletType)
+        {
+            var agent = __instance != null ? __instance.agent : null;
+            if (__result != null && agent != null && agent.localPlayer && agent.isPlayer > 0
+                && !EcsNetManager.ApplyingRemoteBullet)
+                EcsNetManager.Instance?.OnLocalBulletFired(__result, bulletType, agent);
+        }
+    }
+
     // Publish new fires from the 8-arg SpawnFire master. A non-null result
     // means it actually spawned (the master dedups by position/burning
     // object and returns null otherwise). neverGoOut fires are skipped:

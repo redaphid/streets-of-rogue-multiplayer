@@ -110,13 +110,18 @@ namespace EightPlayers
                 bool on = Time.unscaledTime < kv.Value;
                 if (!on)
                     expired.Add(kv.Key);
+                // Also pulse the pressed-edge arrays: semi-auto actions
+                // (guns, most interactions) trigger on pressedX, not heldX
+                // (PlayerControl.cs ~2892), and the game clears pressedX
+                // after consuming it — setting it every frame reads as
+                // mashing, which fires as fast as weapon cooldown allows.
                 switch (kv.Key)
                 {
-                    case "attack": pc.heldAttack[0] = on; break;
-                    case "interact": pc.heldInteract[0] = on; break;
-                    case "special": pc.heldSpecialAbility[0] = on; break;
+                    case "attack": pc.heldAttack[0] = on; if (on) pc.pressedAttack[0] = true; break;
+                    case "interact": pc.heldInteract[0] = on; if (on) pc.pressedInteract[0] = true; break;
+                    case "special": pc.heldSpecialAbility[0] = on; if (on) pc.pressedSpecialAbility[0] = true; break;
                     case "useitem": pc.heldUseItem[0] = on; break;
-                    case "cancel": pc.heldCancel[0] = on; break;
+                    case "cancel": pc.heldCancel[0] = on; if (on) pc.pressedCancel[0] = true; break;
                 }
             }
             foreach (var k in expired)

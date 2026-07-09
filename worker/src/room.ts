@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import { RoomWorld } from './ecs'
 import { PROTO_VERSION } from './protocol'
+import { runSystems } from './systems'
 import type { ClientMsg, Components, ServerMsg } from './protocol'
 
 interface Attachment {
@@ -170,6 +171,19 @@ export class GameRoom extends DurableObject {
         const kind = String(msg.kind ?? '').slice(0, 32)
         if (!kind) return
         this.broadcast({ t: 'event', from: att.id, kind, data: msg.data }, ws)
+        // Server-side game logic: systems may turn this event into
+        // authoritative component writes, broadcast to EVERYONE including
+        // the sender (outcomes are server truth, not echoes).
+        const result = runSystems(this.world, {
+          from: att.id,
+          kind,
+          data: msg.data as Record<string, unknown> | undefined,
+        })
+        for (const set of result.sets) {
+          const durable = RoomWorld.persistable(set.components)
+          if (Object.keys(durable).length > 0) await this.persistEntity(set.e)
+          this.broadcast({ t: 'set', e: set.e, components: set.components })
+        }
         return
       }
       case 'ping':

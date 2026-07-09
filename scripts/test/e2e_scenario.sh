@@ -314,6 +314,14 @@ done
                    || fail "A's player moved under B's ECS input intent (from $AX,$AY)"
 cmd ecs1 "ecsset $AENT {\"input\":null}" >/dev/null   # clear the intent
 
+echo "[15/15] bullet tracers: A's gunfire visible on B (fired via input intent)"
+AUID=$(player_uid ecs0)
+cmd ecs0 "give $AUID Revolver 1" >/dev/null
+cmd ecs0 "equip $AUID Revolver" >/dev/null
+cmd ecs1 "ecsset $AENT {\"input\":{\"hold\":[\"attack\"]}}" >/dev/null   # B pulls A's trigger
+waitlog ecs1 "bullet spawned by peer" 30 && ok "A's bullet tracer spawned on B" || fail "A's bullet tracer spawned on B"
+cmd ecs1 "ecsset $AENT {\"input\":null}" >/dev/null
+
 echo "[14b] ECS inspection: statuses readable as fx component"
 AUID=$(player_uid ecs0)
 cmd ecs0 "status $AUID Fast" >/dev/null

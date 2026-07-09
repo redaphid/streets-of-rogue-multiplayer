@@ -589,6 +589,55 @@ namespace EightPlayers.EcsNet
                     return;
                 }
 
+                case "bullet":
+                {
+                    var x = (float?)msg.EventData?["x"];
+                    var y = (float?)msg.EventData?["y"];
+                    var rot = (float?)msg.EventData?["rot"] ?? 0f;
+                    var typeName = (string)msg.EventData?["type"];
+                    var shooterEntity = (int?)msg.EventData?["e"] ?? -1;
+                    if (x == null || y == null || string.IsNullOrEmpty(typeName))
+                        return;
+                    if (!WorldStable)
+                        return;
+                    // The tracer needs a live agent behind it (Bullet.Update
+                    // dereferences .agent) — use the shooter's local avatar.
+                    var shooterAvatar = _avatars.GetAgentFor(shooterEntity);
+                    if (shooterAvatar == null || shooterAvatar.dead)
+                        return;
+                    bulletStatus bulletType;
+                    try { bulletType = (bulletStatus)Enum.Parse(typeof(bulletStatus), typeName); }
+                    catch { return; }
+                    try
+                    {
+                        ApplyingRemoteBullet = true;
+                        var gc = GameController.gameController;
+                        var b = gc.spawnerMain.SpawnBullet(
+                            new Vector3(x.Value, y.Value, 0f), bulletType, shooterAvatar);
+                        if (b != null)
+                        {
+                            b.tr.rotation = Quaternion.Euler(0f, 0f, rot);
+                            // Cosmetic tracer: damage already flows through
+                            // pvp-hit relays and authority hp sync — a live
+                            // collider here would double-apply it.
+                            foreach (var col in b.GetComponentsInChildren<Collider2D>())
+                                col.enabled = false;
+                            EightPlayersPlugin.Log.LogInfo(
+                                $"ECSNET bullet spawned by peer {msg.From} at ({x:0.#},{y:0.#}) rot={rot:0} type={typeName}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        EightPlayersPlugin.Log.LogWarning(
+                            $"ECSNET bullet apply failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        ApplyingRemoteBullet = false;
+                    }
+                    return;
+                }
+
                 case "gas-spawn":
                 {
                     var x = (float?)msg.EventData?["x"];
@@ -981,6 +1030,31 @@ namespace EightPlayers.EcsNet
         /// <summary>True while a remote door event is being applied locally,
         /// so the Lock/Unlock hooks don't echo it back into the room.</summary>
         public static bool ApplyingRemoteDoor;
+
+        /// <summary>Same suppression for the Gun.spawnBullet hook.</summary>
+        public static bool ApplyingRemoteBullet;
+
+        /// <summary>Called from the Gun.spawnBullet hook (EcsHooks): publish
+        /// a local player's shot so peers can show a tracer.</summary>
+        public void OnLocalBulletFired(Bullet bullet, bulletStatus type, Agent shooter)
+        {
+            if (!_welcomed || !WorldStable || bullet == null || bullet.tr == null)
+                return;
+            foreach (var lp in _locals)
+                if (ReferenceEquals(lp.Agent, shooter) && lp.Entity >= 0)
+                {
+                    Vector2 p = bullet.tr.position;
+                    _client.Send(Protocol.Event("bullet", new JObject
+                    {
+                        ["x"] = p.x,
+                        ["y"] = p.y,
+                        ["rot"] = bullet.tr.eulerAngles.z,
+                        ["type"] = type.ToString(),
+                        ["e"] = lp.Entity,
+                    }));
+                    return;
+                }
+        }
 
         /// <summary>Same suppression for the ObjectReal.DestroyMe hook.</summary>
         public static bool ApplyingRemoteObject;
