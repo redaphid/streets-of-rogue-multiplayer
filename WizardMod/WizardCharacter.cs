@@ -12,16 +12,41 @@ namespace WizardMod
         private const string BaseBody = "Vampire";
         private static readonly Color32 RobeColor = new Color32(94, 0, 148, 255);
 
+        // UI slots 0-31 are the built-in character page; slots 32-47 are hardwired
+        // as custom-character ("Create Character") slots — the game has ~30
+        // slotNumber>=32 checks routing those through custom-character loading.
+        // The Character Pack DLC brings the base roster to exactly 32, filling every
+        // built-in slot, so simply appending the Wizard drops it into slot 32 where
+        // it behaves as an empty custom slot ("Create Character"). When the roster is
+        // full, displace a near-duplicate instead: GangbangerB is a palette-swap of
+        // Gangbanger with an identical kit, the least-missed sacrifice.
+        private const int BuiltInSlots = 32;
+        private const string DisplaceAgent = "GangbangerB";
+
         [HarmonyPostfix]
         [HarmonyPatch(typeof(CharacterSelect), nameof(CharacterSelect.RealAwake))]
         public static void AddToRoster(CharacterSelect __instance)
         {
             if (!__instance.slotAgentTypes.Contains(AgentName))
-                __instance.slotAgentTypes.Add(AgentName);
+            {
+                if (__instance.slotAgentTypes.Count >= BuiltInSlots)
+                {
+                    int drop = __instance.slotAgentTypes.IndexOf(DisplaceAgent);
+                    if (drop < 0) drop = __instance.slotAgentTypes.Count - 1;
+                    WizardModPlugin.Log.LogInfo("Roster full (" + __instance.slotAgentTypes.Count +
+                        " built-in) - displacing '" + __instance.slotAgentTypes[drop] + "' so the Wizard fits a built-in slot");
+                    __instance.slotAgentTypes[drop] = AgentName;
+                }
+                else
+                {
+                    __instance.slotAgentTypes.Add(AgentName);
+                }
+            }
             if (!__instance.slotAgentTypesComplete.Contains(AgentName))
                 __instance.slotAgentTypesComplete.Add(AgentName);
             AliasPortraitSprites();
-            WizardModPlugin.Log.LogInfo("Wizard added to character select roster");
+            WizardModPlugin.Log.LogInfo("Wizard added to character select roster (roster size " +
+                __instance.slotAgentTypes.Count + ")");
         }
 
         // The select screen looks up portrait sprites by "<agentName>S" in GameResources
