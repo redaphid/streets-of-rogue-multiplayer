@@ -4,9 +4,16 @@ Two independent BepInEx mods live in this repo:
 
 - **EightPlayers** — up to 8 people in one game (below).
 - **WizardMod** — a new playable character, the **Wizard**, whose Chaos
-  Magic ability casts a random spell every press. Standalone; see
-  [docs/WIZARD.md](docs/WIZARD.md). Ready-to-extract bundles:
-  `dist/SoR-WizardMod-Windows.zip` / `-Linux.zip`.
+  Magic ability casts a random spell every press. Standalone; full
+  install steps (Windows and Linux) and asset list in
+  [docs/WIZARD.md](docs/WIZARD.md).
+
+Every push to `main` publishes a [GitHub Release](../../releases) with
+the current `dist/*.zip` install bundles for both mods attached — that's
+the easiest way to get the latest version. See
+[.github/workflows/release.yml](.github/workflows/release.yml) for how
+(and why it packages instead of rebuilding — the mods link against the
+game's own copyrighted DLLs, which no CI runner has).
 
 # EightPlayers mod
 
@@ -116,6 +123,17 @@ Requires the .NET 8 SDK (`~/.dotnet` here):
 
     cd EightPlayers && dotnet build -c Release
     cp bin/Release/net472/EightPlayers.dll "<game>/BepInEx/plugins/"
+
+## Publishing a release
+
+CI can't build from source (see above), so after rebuilding locally,
+re-stage the zip: unzip the previous `dist/SoR-EightPlayers-*.zip`, swap
+in the freshly built `EightPlayers.dll`, re-zip, and commit both the DLL
+and the zips under `dist/`. Push to `main` and the release workflow
+publishes them automatically. Its `verify-dist` job fails the run if a
+zip's DLL doesn't byte-match `dist/EightPlayers.dll` — a safety net for
+a forgotten re-zip. Same process for WizardMod, see
+[docs/WIZARD.md](docs/WIZARD.md#building--releasing).
 
 ## Known limitations
 

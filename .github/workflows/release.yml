@@ -1,0 +1,66 @@
+name: Release
+
+# This does NOT build the mods from source. WizardMod.csproj and
+# EightPlayers.csproj both link directly against the game's own DLLs
+# (Assembly-CSharp.dll, UnityEngine*.dll, Mirror.dll) via <GameDir>, which
+# are copyrighted by the game's developer and only exist on a machine that
+# already owns and has installed the game — no CI runner can obtain them.
+#
+# So instead this packages the already-built install zips that are
+# committed to dist/ (see docs/WIZARD.md "Building & releasing" for the
+# manual rebuild-and-rezip step a maintainer runs locally before merging).
+# verify-dist below is a safety net that fails the release if a maintainer
+# forgot that step and a committed zip's DLL doesn't match dist/*.dll.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  verify-dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check zip DLLs match committed dist DLLs
+        run: |
+          set -euo pipefail
+          check() {
+            local zip="$1" dll="$2" name="$3"
+            if [ ! -f "$zip" ] || [ ! -f "$dll" ]; then
+              echo "skip: $name (missing $zip or $dll)"
+              return 0
+            fi
+            unzip -p "$zip" "BepInEx/plugins/$(basename "$dll")" > /tmp/extracted.dll
+            if ! cmp -s /tmp/extracted.dll "$dll"; then
+              echo "::error::$zip's $(basename "$dll") does not match $dll — rebuild and re-zip before merging to main (see docs/WIZARD.md)"
+              exit 1
+            fi
+            echo "ok: $name"
+          }
+          check dist/SoR-WizardMod-Windows.zip dist/WizardMod.dll WizardMod-Windows
+          check dist/SoR-WizardMod-Linux.zip   dist/WizardMod.dll WizardMod-Linux
+          check dist/SoR-EightPlayers-Windows.zip dist/EightPlayers.dll EightPlayers-Windows
+          check dist/SoR-EightPlayers-Linux.zip   dist/EightPlayers.dll EightPlayers-Linux
+
+  release:
+    needs: verify-dist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute version tag
+        id: version
+        run: echo "tag=v$(date -u +%Y.%m.%d).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/SoR-WizardMod-Windows.zip
+            dist/SoR-WizardMod-Linux.zip
+            dist/SoR-EightPlayers-Windows.zip
+            dist/SoR-EightPlayers-Linux.zip

@@ -1,41 +1,156 @@
 # WizardMod — the Wizard character
 
 A standalone BepInEx plugin (`WizardMod/`) that adds a new playable
-character, the **Wizard**, to Streets of Rogue. It does NOT depend on
-EightPlayers (or anything else); the two mods coexist fine.
+character, the **Wizard**, to Streets of Rogue. It does **not** depend on
+EightPlayers or RogueLibs; it can be installed alone, or side by side with
+EightPlayers in the same `BepInEx/plugins/` folder.
 
-## What it adds
+## Install — Windows
 
-**Wizard** appears as the last slot on the character select screen,
-always unlocked.
+1. **Get the game folder.** Steam → right-click *Streets of Rogue* →
+   Manage → Browse local files. This opens something like
+   `C:\Program Files (x86)\Steam\steamapps\common\Streets of Rogue`,
+   the folder containing `StreetsOfRogue.exe`.
+2. **Download** `SoR-WizardMod-Windows.zip` (from this repo's
+   [Releases](../../releases) page, or the `dist/` folder).
+3. **Extract everything in the zip into that game folder**, so it merges
+   with what's already there:
+   - `BepInEx\` (folder — contains `core\` and `plugins\WizardMod.dll`)
+   - `winhttp.dll`
+   - `doorstop_config.ini`
+
+   If Windows blocks the zip (unfamiliar download), right-click it →
+   Properties → check "Unblock" → OK, then extract again.
+4. **Launch the game once through Steam and quit** to confirm it loaded.
+   Open `BepInEx\LogOutput.log` in that folder and check for the line
+   `Loading [Wizard Character 1.0.0]` and
+   `WizardMod loaded: Wizard character + Chaos Magic ability`.
+5. **Play**: on the character select screen, the **Wizard** is the last
+   slot, already unlocked.
+
+No launch options are needed on Windows — BepInEx auto-loads via
+`winhttp.dll` (a DLL proxy technique, not a virus despite the name).
+
+## Install — Linux (Steam / Proton or native)
+
+1. **Get the game folder.** Steam → right-click *Streets of Rogue* →
+   Manage → Browse local files. On the Flatpak Steam this repo was built
+   against, that's typically
+   `~/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Streets of Rogue`.
+2. **Download** `SoR-WizardMod-Linux.zip` (Releases page or `dist/`).
+3. **Extract everything in the zip into that game folder**, merging with
+   what's already there:
+   - `BepInEx/` (folder — contains `core/` and `plugins/WizardMod.dll`)
+   - `run_bepinex.sh`
+   - `libdoorstop.so`
+4. **Make the loader executable and set Steam launch options**
+   (Properties → General → Launch Options):
+   ```
+   ./run_bepinex.sh # %command%
+   ```
+   The trailing `#` matters — it comments out the rest of Steam's launch
+   chain, which `run_bepinex.sh` can't parse (and whose container glibc
+   is too old for BepInEx's doorstop anyway). This trades away the Steam
+   Overlay for a working mod loader.
+5. **Launch the game once through Steam and quit** to confirm it loaded.
+   Check `BepInEx/LogOutput.log` for `Loading [Wizard Character 1.0.0]`
+   and `WizardMod loaded: Wizard character + Chaos Magic ability`.
+6. **Play**: Wizard is the last slot on character select, already unlocked.
+
+## Playing with others
+
+**Every player in the game needs the mod installed** — host and every
+client. A peer without it will see the Wizard as a statless agent with a
+broken/missing body sprite (the game logs an error and moves on; it does
+not crash).
+
+Playing with more than 4 people at once? Also install `EightPlayers.dll`
+into the same `BepInEx/plugins/` folder — the two mods are independent
+and don't conflict.
+
+## Uninstall
+
+Delete `BepInEx/plugins/WizardMod.dll` (Windows: `BepInEx\plugins\WizardMod.dll`).
+To remove every mod, delete the whole `BepInEx` folder plus `winhttp.dll`
+and `doorstop_config.ini` (Windows) or `libdoorstop.so` and
+`run_bepinex.sh` (Linux).
+
+## What the Wizard plays like
+
+Appears as the last slot on character select, always unlocked.
 
 - **Glass cannon**: Strength 1, Endurance 1 (80 HP), Accuracy 3, Speed 3.
-  Starts with a Knife. Reuses the Vampire body with purple legs
-  ("robes") — no custom art needed for the agent itself.
+  Starts with a Knife. Reuses the Vampire's body sprite, recolored with
+  purple "robe" legs — no new character art needed.
 - **Chaos Magic** (special ability, custom icon, 4 s cooldown) — every
-  press casts a *random* spell, fired wherever the player aims:
-  | roll | spell | implementation |
+  press casts a *random* spell, fired wherever the player is aiming:
+
+  | roll | spell | game effect reused |
   |---|---|---|
-  | 0 | Fireball | `gun.spawnBullet(bulletStatus.Fireball)` |
+  | 0 | Fireball | `bulletStatus.Fireball` |
   | 1 | Frost bolt | `bulletStatus.FreezeRay` |
   | 2 | Lightning | `bulletStatus.Taser` |
   | 3 | Shrink ray | `bulletStatus.Shrink` |
   | 4 | Spirit blast | `bulletStatus.GhostBlaster` |
   | 5 | Sleep dart | `bulletStatus.Tranquilizer` |
-  | 6 | Blink | teleport to a valid tile 3–8 away |
-  | 7 | **Wild Surge** | random self-effect: Giant / Fast / InvisibleLimited / Shrunk (12/10/8/10 s) or a long random teleport (8–14) |
+  | 6 | Blink | teleport to a valid tile 3–8 units away |
+  | 7 | **Wild Surge** | random self-effect: Giant / Fast / InvisibleLimited / Shrunk (12/10/8/10 s), or a long random teleport (8–14) |
 
-  The wizard shouts each spell (`Agent.Say`), e.g. "WILD SURGE! I AM MIGHTY!".
+  The wizard shouts each spell (e.g. "FIREBALL!", "WILD SURGE! I AM MIGHTY!").
 
-## How it works (all Harmony patches, no RogueLibs)
+## Assets
 
-**RogueLibs was evaluated and rejected**: v4.0.0-rc.1 (the final release;
-repo archived Dec 2024) is compiled against the pre-2025 game and
-references `com.unity.multiplayer-hlapi.Runtime`, which the current
+Everything the mod ships is either **generated by this repo's tooling**
+or **the game's own existing content, reused via code** — no ripped or
+third-party game assets are redistributed.
+
+**Original (shipped in `WizardMod/Resources/`, embedded in the DLL):**
+- `ChaosMagic.png` — 64×64 RGBA ability icon (a purple wizard hat with
+  gold band/stars and cyan sparkles), generated procedurally with
+  Pillow (see the script in this repo's history) — not hand-drawn, not
+  sourced from anywhere. Injected at runtime into the game's
+  `gameResources.itemDic["ChaosMagic"]`.
+
+**Reused from the base game (referenced by name at runtime, not copied
+into this repo or the DLL):**
+- Body sprites: the Vampire character's sprite set
+  (`gameResources.bodyDic["VampireS"]` etc.), aliased under `"Wizard"` —
+  see `WizardCharacter.cs` (`BaseBody = "Vampire"`).
+- Bullet/projectile effects: `Fireball`, `FreezeRay`, `Taser`, `Shrink`,
+  `GhostBlaster`, `Tranquilizer` (all existing `bulletStatus` types other
+  characters/enemies already use).
+- Status effects: `Giant`, `Fast`, `InvisibleLimited`, `Shrunk` (Wild
+  Surge outcomes) and the game's own teleport-particle/sound handling.
+- Sound cues: `CantDo` (ability on cooldown), `Recharge` (ability ready),
+  `MindControlFire` (cast whoosh, borrowed since it's the closest
+  existing "magic zap" sound).
+- Color: a custom `Color32(94, 0, 148, 255)` purple tint applied to the
+  Vampire body's leg color slot — a runtime value, not an asset file.
+
+**Third-party, redistributed under their own open-source licenses (in
+the install zips, not written by this mod):**
+- [BepInEx](https://github.com/BepInEx/BepInEx) 5.4.23.3 — the mod
+  loader framework (`BepInEx/core/*`, `winhttp.dll` / `doorstop_config.ini`
+  on Windows, `run_bepinex.sh` / `libdoorstop.so` on Linux).
+- [HarmonyX](https://github.com/BepInEx/HarmonyX) (`0Harmony.dll`,
+  bundled with BepInEx) — the runtime patching library `WizardMod` uses
+  to hook into the game's methods.
+
+**Not distributed, never touched by CI:** the game's own compiled code
+(`Assembly-CSharp.dll`, `UnityEngine*.dll`, `Mirror.dll`) is copyrighted
+by the game's developer and is required only at build-time on a machine
+that already owns and has installed the game — see
+[Building](#building--releasing) below.
+
+## How it works (implementation notes, all Harmony patches, no RogueLibs)
+
+**RogueLibs was evaluated and rejected**: v4.0.0-rc.1 (the final
+release; repo archived Dec 2024) is compiled against the pre-2025 game
+and references `com.unity.multiplayer-hlapi.Runtime`, which the current
 Unity-2022.3.60 build no longer ships — every one of its item/ability
-patches fails with IL-compile FileNotFoundException. Everything is
+patches fails with an IL-compile `FileNotFoundException`. Everything is
 hand-rolled instead, mirroring vanilla code paths found in `decompiled/`
-(see HANDOFF.md for how to regenerate that folder).
+(see `docs/HANDOFF.md` for how to regenerate that folder).
 
 `WizardCharacter.cs` — injects the character:
 - `CharacterSelect.RealAwake` postfix: adds "Wizard" to
@@ -62,10 +177,11 @@ hand-rolled instead, mirroring vanilla code paths found in `decompiled/`
   (`invItemCount`, 0 = ready), starts a recharge coroutine (1/s
   countdown, "Recharged" buff text, HUD slot MakeUsable), casts the
   random spell. All HUD touches are try/catch-guarded (headless/remote
-  players have no buffDisplay — this NRE'd and wedged the cooldown until
-  guarded).
+  players have no `buffDisplay` — this NRE'd and wedged the cooldown
+  until guarded).
 
 ### Multiplayer
+
 Effects go exclusively through the game's own synced mechanisms
 (player-fired bullets, self-teleport, self status effects), so nothing
 custom crosses the wire. The character name string is passed verbatim
@@ -77,7 +193,11 @@ the ability locally from the agent name in `SetupAgentStats`, same as
 vanilla characters. Verified working host-side; untested with a remote
 client as the wizard.)
 
-## Building
+## Building & releasing
+
+Requires the .NET 8 SDK (`~/.dotnet` in this environment) **and a local
+install of the game** (for its DLLs — see the copyright note above; this
+is why CI cannot build from source):
 
 ```sh
 cd WizardMod && ~/.dotnet/dotnet build -c Release
@@ -85,20 +205,28 @@ cp bin/Release/net472/WizardMod.dll \
   "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Streets of Rogue/BepInEx/plugins/"
 ```
 
-## Install bundles
+`WizardMod.csproj`'s `<GameDir>`/`<ManagedDir>` point at that install;
+adjust for a different game path.
 
-`dist/SoR-WizardMod-Windows.zip` / `-Linux.zip` — BepInEx 5.4 + WizardMod
-+ INSTALL-README. Extract into the game folder. Standalone; to combine
-with 8-player games also drop `EightPlayers.dll` into `BepInEx/plugins`.
+**Publishing a new version:** after rebuilding, re-stage the install
+zips (unzip the previous `dist/SoR-WizardMod-*.zip`, swap in the new
+`WizardMod.dll`, re-zip) and commit the updated `dist/*.zip` +
+`dist/WizardMod.dll`. `.github/workflows/release.yml` publishes a
+GitHub Release with those zips attached automatically on every push to
+`main` — it packages the artifacts already committed to `dist/`, it does
+**not** rebuild them (see "Building & releasing" above for why). A
+`verify-dist` job in that workflow fails the run if a committed zip's
+`WizardMod.dll` doesn't byte-match `dist/WizardMod.dll`, to catch a
+forgotten re-zip.
 
 ## Testing (headless e2e)
 
-TestDriver gained two env vars for this:
+`TestDriver` has env vars for this:
 - `SOR_TEST_CHAR=Wizard` — forces that agent on the select screen
   (`curSelected[0]` before `AcceptChoice`)
 - `SOR_TEST_CAST=1` — presses the special ability every 5 s and reports
   `agent=... ability=... abilityCount=... pos=...`
-- `SOR_TEST_ACCEPT_DELAY=N` — leave select screen open N s (screenshots)
+- `SOR_TEST_ACCEPT_DELAY=N` — leave select screen open N s (for screenshots)
 
 Verified 2026-07-08 (headless host, 90 s): spawns as Wizard with
 ChaosMagic, `pressed-ability used=True` every cycle, cooldown counts
