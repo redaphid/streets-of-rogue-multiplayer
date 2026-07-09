@@ -140,10 +140,29 @@ namespace SorTestDriver
                             if (now < charSelectSeen + acceptDelay)
                                 return;
                             nextAttempt = now + 3f;
-                            if (!string.IsNullOrEmpty(testChar) && cs.curSelected != null && cs.curSelected.Length > 0)
-                                cs.curSelected[0] = testChar;
+                            string picked = "(default)";
+                            if (!string.IsNullOrEmpty(testChar))
+                            {
+                                // AcceptChoice reads selectedInvSlot[0]/curSelectedNum[0] (NOT the
+                                // curSelected string), so point them at the roster slot whose agent
+                                // is testChar. slotAgent[n]'s parent holds the InvSlot for index n.
+                                int n = cs.slotAgentTypes != null ? cs.slotAgentTypes.IndexOf(testChar) : -1;
+                                if (n >= 0 && cs.slotAgent != null && n < cs.slotAgent.Length && cs.slotAgent[n] != null)
+                                {
+                                    var slot = cs.slotAgent[n].transform.parent.GetComponent<InvSlot>();
+                                    if (slot != null)
+                                    {
+                                        cs.selectedInvSlot[0] = slot;
+                                        cs.curSelectedNum[0] = n;
+                                        picked = testChar + "@slot" + n + "(num=" + slot.slotNumber + " unlocked=" +
+                                                 (n < cs.unlocked.Length ? cs.unlocked[n].ToString() : "?") + ")";
+                                    }
+                                    else picked = "NO-INVSLOT-for-" + testChar;
+                                }
+                                else picked = "NOT-IN-ROSTER-" + testChar + "(idx=" + n + ")";
+                            }
                             cs.AcceptChoice(0);
-                            Report("accepted-character" + (string.IsNullOrEmpty(testChar) ? "" : " forced=" + testChar));
+                            Report("accepted-character forced=" + picked);
                         }
                     }
                     AbilityTick(gc, now);
@@ -162,6 +181,8 @@ namespace SorTestDriver
             var item = a.inventory == null ? null : a.inventory.equippedSpecialAbility;
             Report($"agent={a.agentName} ability={a.specialAbility ?? "-"}"
                  + $" abilityCount={(item == null ? "none" : item.invItemCount.ToString())}"
+                 + $" iconNull={(item == null ? "n/a" : (item.itemIcon == null).ToString())}"
+                 + $" iconName={(item == null ? "-" : (item.itemIcon == null ? "null" : item.itemIcon.name))}"
                  + $" hp={a.health} pos=({a.tr.position.x:F1},{a.tr.position.y:F1})");
             if (castTest && !string.IsNullOrEmpty(a.specialAbility))
             {
