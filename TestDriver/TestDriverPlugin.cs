@@ -10,7 +10,7 @@ namespace SorTestDriver
 {
     // Headless end-to-end test harness. Inert unless SOR_TEST_MODE is set.
     //
-    //   SOR_TEST_MODE   = host | client
+    //   SOR_TEST_MODE   = host | client | solo   (solo: single-player game, no Mirror)
     //   SOR_TEST_ADDR   = host address for clients      (default 127.0.0.1)
     //   SOR_TEST_PORT   = LAN port                      (default 7777)
     //   SOR_TEST_NAME   = multiplayer player name       (default TestN)
@@ -29,6 +29,14 @@ namespace SorTestDriver
         private float charSelectSeen = -1f;
         private string state = "boot";
         private float nextAttempt, nextReport, nextCast, started;
+
+        /// <summary>EightPlayers' room-adopted world seed, via reflection
+        /// (the driver deliberately has no hard reference to the mod).</summary>
+        private static string AdoptedSeed()
+        {
+            var t = Type.GetType("EightPlayers.EcsNet.EcsNetManager, EightPlayers");
+            return t?.GetProperty("AdoptedSeed")?.GetValue(null) as string;
+        }
         private int exceptionCount;
 
         private void Awake()
@@ -86,7 +94,68 @@ namespace SorTestDriver
             {
                 case "boot":
                     if (now - started > 12f)
-                        state = "open-lan";
+                    {
+                        // In an ECS room, wait for the room's world seed
+                        // BEFORE starting the game: starting first generates
+                        // a throwaway world, forces a follow reload, and that
+                        // reload window has repeatedly wedged loads. The
+                        // claimer never adopts a seed — its timeout starts it
+                        // (and it then claims). 30s cap.
+                        bool inRoom = !string.IsNullOrEmpty(
+                            Environment.GetEnvironmentVariable("SOR_ECS_ROOM"));
+                        if (inRoom && mode == "solo" && now - started < 42f
+                            && AdoptedSeed() == null)
+                        {
+                            return;
+                        }
+                        if (inRoom && mode == "solo" && AdoptedSeed() != null)
+                            Report("adopted-seed-before-start");
+                        state = mode == "solo" ? "start-solo" : "open-lan";
+                    }
+                    break;
+
+                case "start-solo":
+                    if (now < nextAttempt)
+                        return;
+                    nextAttempt = now + 5f;
+                    // Single-player quick start: opens character select (the
+                    // in-game state auto-accepts) and runs with Mirror never
+                    // starting — the proof path for the ECS-only layer.
+                    try
+                    {
+                        gc.menuGUI.PressedQuickStart();
+                        Report("pressed-quickstart-solo");
+                        state = "solo-accept";
+                        nextAttempt = now + 3f;
+                    }
+                    catch (Exception e)
+                    {
+                        Report("PressedQuickStart threw: " + e.Message);
+                    }
+                    break;
+
+                case "solo-accept":
+                    if (now < nextAttempt)
+                        return;
+                    nextAttempt = now + 5f;
+                    // Char select is open with a default character; start a
+                    // one-player offline game.
+                    try
+                    {
+                        // NOTE: do NOT set mustSelectCharacter=false here —
+                        // the level-transition flow depends on the char-select
+                        // path and stalls generation without it (level 2 loads
+                        // with 0 objects). The stuck-flag problem is handled
+                        // in the in-game state instead (accept once, then
+                        // clear the movement-gating flag).
+                        gc.menuGUI.PressedStartGame(1);
+                        Report("pressed-startgame-solo");
+                        state = "in-game";
+                    }
+                    catch (Exception e)
+                    {
+                        Report("PressedStartGame threw: " + e.Message);
+                    }
                     break;
 
                 case "open-lan":
@@ -126,11 +195,21 @@ namespace SorTestDriver
                     break;
 
                 case "in-game":
-                    // Auto-accept the default character whenever the select screen opens
+                    // Character select handling has to serve two flows:
+                    // 1. TRANSITION selects (mid-load, loadCompleteReally
+                    //    false): keep retrying AcceptChoice — the accept is
+                    //    what lets the load complete, and it succeeds there
+                    //    (a slot carries over). Never touch the flag mid-load
+                    //    (clearing it wedges generation: agents=1 objects=0).
+                    // 2. BOOT stale select (load complete, accept impossible
+                    //    because no UI-picked slot): clear the flag, which
+                    //    otherwise gates ALL player movement.
                     if (now >= nextAttempt && gc.mainGUI != null && gc.mainGUI.openedCharacterSelect)
                     {
+                        nextAttempt = now + 3f;
                         var cs = gc.mainGUI.characterSelectScript;
-                        if (cs != null && cs.choiceAccepted != null && cs.choiceAccepted.Length > 0 && !cs.choiceAccepted[0])
+                        if (cs != null && cs.choiceAccepted != null
+                            && cs.choiceAccepted.Length > 0 && !cs.choiceAccepted[0])
                         {
                             if (charSelectSeen < 0f)
                             {
@@ -164,6 +243,25 @@ namespace SorTestDriver
                             cs.AcceptChoice(0);
                             Report("accepted-character forced=" + picked);
                         }
+                        if (gc.loadCompleteReally && gc.mainGUI.openedCharacterSelect
+                            && cs != null && cs.choiceAccepted != null
+                            && cs.choiceAccepted.Length > 0 && !cs.choiceAccepted[0])
+                        {
+                            gc.mainGUI.openedCharacterSelect = false;
+                            Report("cleared-character-select-flag");
+                        }
+                    }
+                    // Dismiss the level-start "READ THIS" mission brief: it
+                    // holds cantPressButtons (= no movement) until a human
+                    // clicks it away.
+                    if (now >= nextAttempt && gc.mainGUI != null && gc.mainGUI.menuGUI != null
+                        && gc.mainGUI.menuGUI.readThis != null && gc.mainGUI.menuGUI.readThis.activeSelf)
+                    {
+                        nextAttempt = now + 3f;
+                        gc.mainGUI.menuGUI.CloseReadThis();
+                        if (gc.playerControl != null)
+                            gc.playerControl.cantPressButtons = false;
+                        Report("closed-read-this");
                     }
                     AbilityTick(gc, now);
                     break;

@@ -1,144 +1,131 @@
 # Project handoff / status
 
-## NEW (2026-07-08): WizardMod — standalone Wizard character
+**Goal:** Up to 8 people play Streets of Rogue in ONE game across a mix of
+computers. Phase 1 (Mirror LAN, 8-player cap, multi-window, controllers) is
+DONE and summarized at the bottom. The active phase replaces Mirror with an
+**ECS netcode layer on Cloudflare Durable Objects** (one DO per room, JSON
+over WebSocket), designed so a JS/browser client can join later.
+`docs/ecs-systems.md` is the protocol spec + per-system reference;
+`docs/debug-harness.md` is the Claude-driven live-debug playbook.
 
-`WizardMod/` adds a playable **Wizard** (glass cannon, Chaos Magic =
-random spell per press). Fully verified headless + GUI screenshot;
-dist zips built. **No dependency on EightPlayers.** Exact Windows/Linux
-install steps, full asset list (what's original vs. reused-from-game
-vs. third-party), patch map, and the RogueLibs post-mortem (it's dead
-against this Unity-2022 build): see `docs/WIZARD.md`. TestDriver gained
-`SOR_TEST_CHAR`, `SOR_TEST_CAST`, `SOR_TEST_ACCEPT_DELAY` for
-character/ability e2e tests.
+Game: Flatpak Steam, Linux, Unity 2022.3.60f1 Mono, AppID 512900, at
+`~/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Streets of Rogue`.
 
-**Also new:** `.github/workflows/release.yml` publishes a GitHub Release
-with the `dist/*.zip` bundles (both mods) on every push to `main`. It
-packages already-built artifacts rather than compiling from source —
-both mods link against the game's own copyrighted DLLs, which aren't
-obtainable on a CI runner. A `verify-dist` job fails the run if a
-committed zip's plugin DLL doesn't match the corresponding
-`dist/*.dll` — catches a forgotten rebuild-and-rezip before merging.
-While wiring this up, found and fixed exactly that: the EightPlayers
-dist zips were already stale (built before the last few EightPlayers.cs
-changes) — re-staged with the current `dist/EightPlayers.dll`.
+## Branch map
 
-**Goal:** Let up to 8 people play Streets of Rogue in ONE game, across a
-heterogeneous mix of computers — some machines running several game windows
-("split screen"), each window driven by its own gamepad, all joined over LAN.
+- `main` — pre-ECS phase 1.
+- `ecs-durable-objects` — the ported netcode, **e2e green 39/39 in both solo
+  and host modes** at `f9d6f0f`. Source of the v0.1.0 release.
+- `ecs-control-plane` — CURRENT WORK (see next section).
 
-Game: Flatpak Steam, Linux, at
-`~/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Streets of Rogue`
-(Unity 2022.3.60f1, Mono backend, Mirror networking, Rewired input, AppID 512900).
+## Current work: ECS control plane (branch `ecs-control-plane`)
 
-## What works (verified)
+Goal: control the player character and inspect world state **purely through
+ECS** — no side-channel commands. Idiomatic pattern: control-as-data.
 
-- **8-player cap raised** — host + 7 headless clients all reach `loadComplete`
-  seeing 8 agents. Patches: `NetworkSlots_Patch` (pads per-slot lists,
-  `maxConnections`), `ServerFull_Patch` (transpiler rewriting the two
-  hardcoded `4`s in `NetworkManagerUWP.WaitUntilLoadComplete`),
-  `PlayerLimitButton_Patch`.
-- **LAN menu re-enabled** (`LanMenu_Patch`) — direct IP host/join, port 7777.
-- **Multiple windows per PC** — Unity's single-instance flock (`unity.lock`
-  lives NEXT TO the exe) bypassed via clone dirs with a **hard-linked** exe +
-  symlinked data. See `scripts/second-window.sh [name] [pad-number]`.
-- **One gamepad per window** — `SOR_PAD=N` (1-based) env var;
-  `JoystickBinding.cs` strips all but the Nth joystick from Rewired players.
-- **Platform-less fallback** — when Steam can't initialize (second windows,
-  test clones), Galaxy/GOG fallback is suppressed (it DllNotFound-storms and
-  wedges loading). `NoSteamFallback_Patch` + `NoGalaxy*_Patch`.
-- **8BitDo Zero 2 auto-mapping** — `ZeroTwoMapping.cs` detects pads whose
-  name/hardwareName contains "8bitdo zero" and installs a compact layout
-  (D-pad move/menus, face buttons by PRINTED Nintendo labels, L inventory,
-  R next item, Select health, Start menu). 16/16 bindings verified installed.
-- **Gamepad window forcing** — this build hides the Controller Type settings
-  button, so `sessionDataBig.player1Controller` stays "Keyboard", which
-  disables the joystick "Gamepad" map and gates off `MoveXJ` reads
-  (`PlayerControl.cs:2100`, gated by `controllerType != "Keyboard"`).
-  `GamepadWindow.ForceGamepadPlayer1()` forces "Gamepad" when `SOR_PAD` is
-  set. Confirmed working via CTRLDBG (`p1=Gamepad agent=Gamepad Gamepad=on`).
-- **Steam launch options** (Flatpak expands `%command%` into a wrapper chain
-  the stock script can't parse; `#` comments it out):
-  `SOR_PAD=1 ./run_bepinex.sh # %command%`
-- **Steam Input must be disabled** per-game (Properties → Controller) or
-  Steam grabs the pad exclusively (diagnosed with `fuser /dev/input/event*`).
+State at handoff (last commit `0174c00`):
 
-## OPEN BUG — the active task
+1. **DONE — worker**: `input` is a **shared** component (any client may write
+   it on any entity; a mixed write touching non-shared components is still
+   owner-only) and **volatile** (broadcast, never persisted — an intent must
+   not replay after DO hibernation). `worker/src/ecs.ts` (`SHARED`/`VOLATILE`
+   sets), tests in `ecs.test.ts` — 11/11, `tsc` clean. Local `wrangler dev`
+   hot-reloads this; the DEPLOYED worker does NOT have it yet.
+2. **DONE — e2e sections written, NOT yet red-run**: `[14/14]` in
+   `scripts/test/e2e_scenario.sh` — B writes `{"input":{"tx":X,"ty":Y}}` onto
+   A's player entity via `ecsset` (exercises the shared-write rule), then
+   watches A's `pos` move >2 units via B's `ecsget` only. `[14b]` — after
+   `status <uid> Fast` on A, B's `ecsget` shows `"fx":...\"Fast\"`.
+3. **TODO — C# InputSystem** (the red→green step): each frame, for each local
+   player entity, read `Raw[entity]["input"]` from `EcsWorld` and feed
+   `VirtualInput`: `{tx,ty}` → walkto, `{mx,my}` → held axes,
+   `{hold:["attack",...]}` → held buttons, `null`/absent → clear. Apply only
+   on the OWNING client. Wire a `Tick()` from `Plugin.Update`.
+4. **TODO — `fx` component**: in `EcsNetManager.OnLocalStatusChanged`, also
+   `Set` the player entity's `fx` component to the full current status list
+   (e.g. `{"fx":{"list":["Fast"]}}`), so statuses are inspectable, not just
+   event-observable.
+5. Then: red run (expect [14]/[14b] FAIL only) → implement → build+deploy dll
+   → green run solo, then host → docs (`ecs-systems.md` control-plane
+   section) → commit+push.
 
-**D-pad moves menus but NOT the character.** `MoveXJ`/`MoveYJ` axes read 0.0
-(both `GetAxis` and `GetAxisRaw`) even though `MenuUpJ`-style *button*
-bindings on the SAME D-pad elements work. The MoveXJ element maps ARE
-present (CTRLDBG shows `X<-el18/P/B` etc.).
+## CRITICAL operational rule (new)
 
-Leading suspects:
-1. Button-type element maps with `Pole` axis contributions may not feed
-   `GetAxis` for hat/D-pad elements — try binding the hat **axis** directly
-   (`bindaxis MoveXJ D-Pad` or the hat X/Y axis element) via the command
-   channel.
-2. The game rebuilds controller maps (`ChangeKeys`/`TransferToMyScheme`)
-   and may reinstall its own map that shadows ours.
-3. Note: hat directions never appear in the CTRLDBG raw `GetButtonById`
-   dump — element ids ≤21 only, and hats aren't raw buttons; that part is
-   expected, not evidence.
+**Never launch test instances while the real Steam client is running.** The
+clones share the Steam flatpak app data; a running client crash-loops its web
+helper (`Failed creating offscreen shared JS context`). `e2e_scenario.sh` now
+aborts if `/app/bin/steam` is up. Close Steam first:
+`flatpak kill com.valvesoftware.Steam`. Diagnosed 2026-07-08 after the user's
+Steam kept crashing.
 
-The **live command channel** (below) was built specifically to resolve this
-without restarting the game. Plan: user stands in a level holding D-pad
-right; send `dump` + `action MoveXJ` + `action MenuRightJ`; compare; then
-try `bindaxis MoveXJ <hat axis element>` live.
+## Running the gates
 
-## Live debugging tools
+```sh
+cd worker && npm run dev &          # wrangler dev on ws://127.0.0.1:8787
+E2E_MODE=solo scripts/test/e2e_scenario.sh   # and E2E_MODE=host (default)
+```
 
-All paths relative to the game dir's `BepInEx/`.
-
-- **CTRLDBG stream** — once/second change-only state line in
-  `LogOutput.log`: p1 setting, agent controllerType, joystick counts, map
-  category on/off, `move=` axes + raw, MoveXJ/MenuUpJ element-map dumps
-  (`X<-el18/P/B`), menu button states, raw pressed elements.
-- **Command channel** — write lines to `BepInEx/ep_cmd.txt` (polled every
-  0.5 s, file deleted after read); results append to `BepInEx/ep_out.txt`
-  and to the log as `EPCMD`. Commands:
-  `dump` · `action <name>` · `bind <action> <+|-> <element name>` ·
-  `bindaxis <action> <element name>` · `unbind <action>` · `remap` ·
-  `nintendo on|off` · `enable <category> on|off`
-- Monitor with:
-  `tail -F "<gamedir>/BepInEx/LogOutput.log" | grep -E 'EPCMD|CTRLDBG|ZeroTwo|Error|Exception'`
-
-## Building & installing
+Build + deploy the plugin (game dir AND both clones `ecs0`/`ecs1` under
+`~/.var/app/com.valvesoftware.Steam/data/sor-clones/`):
 
 ```sh
 cd EightPlayers && ~/.dotnet/dotnet build -c Release
-cp bin/Release/net472/EightPlayers.dll \
-  "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Streets of Rogue/BepInEx/plugins/"
+# then cp bin/Release/net472/EightPlayers.dll to <game>/BepInEx/plugins/ and both clones
 ```
 
-Targets net472 with direct references to game DLLs (`Private=false`).
-`decompiled/` holds the full ilspycmd output of the game (gitignored,
-copyrighted — regenerate with ilspycmd 8.2.0.7535,
-`DOTNET_ROLL_FORWARD=LatestMajor`). Key studied files: `PlayerControl.cs`
-(movement gate ~2085-2117, schemes 1504-1726, action arrays 940-1010),
-`NetworkManagerUWP.cs`, `MenuGUI.cs`, `Agent.cs`, `Movement.cs`.
+TDD discipline: run the failing e2e assertion (red) BEFORE implementing.
+Worker tests: `cd worker && npm test`.
 
-## Testing
+## Release v0.1.0 (Windows, for the user's nephew)
 
-- `scripts/test/lan_swarm.sh` — 6 headless LAN instances via clone dirs.
-  Needs `TestDriver` plugin (SOR_TEST_MODE-gated auto host/join; also sets
-  Mirror `headlessStartMode = HeadlessStartOptions.DoNothing`, else every
-  batchmode instance self-hosts on 7777).
-- Runs must happen inside the flatpak (host glibc 2.35 < doorstop's 2.38).
+https://github.com/redaphid/streets-of-rogue-multiplayer/releases/tag/v0.1.0 —
+`EightPlayers-Windows-v0.1.0.zip`: BepInEx 5.4.23.3 win x64 + plugin from
+`f9d6f0f` + kid-friendly HOW-TO-INSTALL.txt. F9 at the main menu opens the
+co-op room join window. Worker deployed to
+`wss://sor-ecs-net.loqwai.workers.dev` (version e0c93e16) and the bundled
+config points at it. **Blocked on the user:** (1) repo is private — nephew
+can't download; (2) Cloudflare Access intercepts `*.loqwai.workers.dev` with
+a login redirect — exempt the worker or use an unprotected custom domain.
+Untested: `wss://` TLS from the game's Mono runtime (all e2e is local `ws://`).
 
-## Distribution
+## Artifacts
 
-`dist/SoR-EightPlayers-Windows.zip` / `-Linux.zip` — BepInEx + plugin +
-INSTALL-README. **The zips are STALE** (pre-CommandChannel/Nintendo-labels);
-`dist/EightPlayers.dll` is current. Rebuild zips once controls are fixed.
+- `outputs/recordings/gameplay-2min.mp4` (125 s) and `-2x.mp4` (62 s) —
+  ECS-connected session, character driven via VirtualInput, frames verified.
+- `outputs/screenshots/` — synced-state evidence shots (poison, banana, etc.).
+- Recording method: in-game `record <seconds> <fps> [dir]` command → PNG
+  frames → ffmpeg. x11grab is BLACK under rootless XWayland; don't use it.
 
-## Pending
+## Key architecture facts (details in docs/ecs-systems.md)
 
-1. **Fix the movement bug** (above) — drive the command channel live.
-2. User-verify Nintendo-label face buttons feel right.
-3. Rebuild dist zips after controls finalized.
-4. Push to GitHub (no remote yet; `gh repo create` was previously denied by
-   sandbox permissions — user may need to create the repo or grant access).
-5. Phase 2 (stretch): true split-screen players inside online games — keep
-   `coopMode`/`fourPlayerMode` during `multiplayerMode`, `NetworkServer.Spawn`
-   extra local agents; clients already treat spawned agents with
-   `playerColor != 0` named "PlayerrX" as remote players (Agent.cs ~11834).
+- Components: `player`, `pos` (volatile), `hp`, `level {seed,num,hash}`,
+  `npc {i,type}`, `dead`, `weapon`, `wlayout {lv,objs[]}` (one entity per
+  level, authority-published, follower-reconciled; array index = `wi`
+  address), NEW `input` (shared+volatile intent).
+- Events: door-open/lock, obj-destroy, chest-take (all `wi`-addressed,
+  position fallback), shop-take (`ni` NPC index), fire-spawn/out, gas-spawn,
+  item-drop/pickup (positional), pvp-hit, status (player-entity addressed).
+- World divergence: same seed can generate different worlds (frame-timing
+  RNG). `level.hash` detects; heal = lower client id wins, follower reloads
+  (≤2/level). `wlayout` reconciliation makes object addressing drift-proof.
+- Level-load wedges: 3 root causes fixed + `LoadWatchdog.cs` (45 s empty-level
+  detector → bounded reload, `reloadlevel` command to force).
+- Player uid AND player entity change per level (solo) — always re-resolve.
+- `gc.loadCompleteReally`, never `gc.loadComplete`, for "world is up".
+
+## Phase 1 summary (done, on `main`)
+
+8-player cap patches (`NetworkSlots_Patch`, `ServerFull_Patch` transpiler),
+LAN menu re-enabled, multi-window via clone dirs (hard-linked exe, symlinked
+data — Unity's `unity.lock` lives next to the exe), one gamepad per window
+(`SOR_PAD=N` + `JoystickBinding.cs`), 8BitDo Zero 2 auto-map, Galaxy/GOG
+fallback suppression, Steam launch options
+`SOR_PAD=1 ./run_bepinex.sh # %command%`, Steam Input must be disabled
+per-game. Old dist zips under `dist/` are stale; v0.1.0 release supersedes.
+
+## Task list truth
+
+Tasks #1-4, 6-15 completed. #5 (split-screen inside online games) pending and
+superseded in practice by multi-window + ECS rooms. Active loop: the user
+runs a standing /loop "until all systems are ported, and tested e2e" — never
+self-terminate it; the control-plane work above is its current iteration.

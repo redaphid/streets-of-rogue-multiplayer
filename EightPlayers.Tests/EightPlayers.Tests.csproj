@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- Test the pure (non-Unity) parts of the mod by linking their sources.
+       EcsWorld and Protocol depend only on the BCL + Newtonsoft. -->
+  <ItemGroup>
+    <Compile Include="../EightPlayers/EcsNet/EcsWorld.cs" Link="EcsNet/EcsWorld.cs" />
+    <Compile Include="../EightPlayers/EcsNet/Protocol.cs" Link="EcsNet/Protocol.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.8.1" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.1" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

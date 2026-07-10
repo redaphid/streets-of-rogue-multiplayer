@@ -20,11 +20,23 @@ namespace EightPlayers
         internal static ConfigEntry<string> ZeroTwoMatch;
         internal static ConfigEntry<bool> DebugControllerLog;
         internal static ConfigEntry<bool> ZeroTwoNintendoLabels;
+        internal static ConfigEntry<string> EcsServerUrl;
+        internal static ConfigEntry<string> EcsRoom;
+        internal static ConfigEntry<string> EcsPlayerName;
+        internal static ConfigEntry<int> EcsSendHz;
+        internal static ConfigEntry<bool> EcsShowHud;
+        internal static ConfigEntry<bool> EcsRealAvatars;
+        internal static ConfigEntry<bool> EcsFollowLevel;
+        internal static ConfigEntry<bool> EcsNpcSync;
+        internal static ConfigEntry<bool> EcsSuppressDynamicSpawns;
+        internal static ConfigEntry<bool> TraceEnabled;
         internal static ManualLogSource Log;
+        internal static EightPlayersPlugin Instance;
 
         private void Awake()
         {
             Log = Logger;
+            Instance = this;
             MaxPlayers = Config.Bind("General", "MaxPlayers", 8,
                 new ConfigDescription("Maximum total players in an online game (vanilla: 4)", new AcceptableValueRange<int>(2, 16)));
             ShowLanMenu = Config.Bind("General", "ShowLanMenu", true,
@@ -38,9 +50,34 @@ namespace EightPlayers
             ZeroTwoNintendoLabels = Config.Bind("Controllers", "ZeroTwoNintendoLabels", true,
                 "Bind Zero 2 face buttons by their PRINTED (Nintendo-layout) labels instead of reported Xbox positions.");
 
+            EcsServerUrl = Config.Bind("EcsNet", "ServerUrl", "ws://localhost:8787",
+                "sor-ecs-net worker base URL (ws:// for wrangler dev, wss://<worker>.workers.dev when deployed). Env override: SOR_ECS_SERVER.");
+            EcsRoom = Config.Bind("EcsNet", "Room", "",
+                "Room code to join (letters/digits/dashes). Empty disables the ECS network layer. Env override: SOR_ECS_ROOM.");
+            EcsPlayerName = Config.Bind("EcsNet", "PlayerName", System.Environment.UserName,
+                "Name shown above your ghost on other players' screens. Env override: SOR_ECS_NAME.");
+            EcsSendHz = Config.Bind("EcsNet", "SendHz", 15,
+                new ConfigDescription("Position updates per second sent to the room", new AcceptableValueRange<int>(1, 30)));
+            EcsShowHud = Config.Bind("EcsNet", "ShowHud", true,
+                "Show a one-line ECSNET connection status overlay in the top-left corner.");
+            EcsRealAvatars = Config.Bind("EcsNet", "RealAvatars", true,
+                "Spawn a real (AI-disabled) game character for each remote player in the same world instead of a ghost marker.");
+            EcsFollowLevel = Config.Bind("EcsNet", "FollowRoomLevel", true,
+                "Automatically take the next-level transition when the room's party has moved ahead, so everyone travels together.");
+            EcsNpcSync = Config.Bind("EcsNet", "NpcSync", true,
+                "Mirror NPC positions from the room's NPC authority (lowest client id) so everyone sees the same characters in the same places.");
+            EcsSuppressDynamicSpawns = Config.Bind("EcsNet", "SuppressDynamicSpawns", true,
+                "EXPERIMENTAL: followers cancel game-initiated post-load NPC spawns and rely on the authority's dynamic-npc entities instead. Turn off if NPC-related errors appear.");
+
+            TraceEnabled = Config.Bind("Tracing", "Enabled", false,
+                "Write a JSONL behavior trace (traces/trace-*.jsonl in the game dir) of state-mutating game events, used to verify ECS ports keep vanilla behavior. Env override: SOR_TRACE=1/0.");
+
+            Tracing.Trace.Init();
             var harmony = new Harmony(Guid);
             harmony.PatchAll(Assembly.GetExecutingAssembly());
+            Tracing.NetTrace.Install(harmony);
             JoystickBinding.Init();
+            gameObject.AddComponent<EcsNet.EcsNetManager>();
             Log.LogInfo($"EightPlayers loaded. Player cap: {MaxPlayers.Value}, LAN menu: {ShowLanMenu.Value}");
         }
 
@@ -50,6 +87,13 @@ namespace EightPlayers
             ZeroTwoMapping.Tick();
             ControllerDebug.Tick();
             CommandChannel.Tick();
+            LoadWatchdog.Tick();
+            Tracing.Trace.Tick();
+        }
+
+        private void OnApplicationQuit()
+        {
+            Tracing.Trace.Shutdown();
         }
     }
 
@@ -144,6 +188,53 @@ namespace EightPlayers
         }
     }
 
+    // SOR_SEED=<string> forces a deterministic map seed (the game's own
+    // user-set-seed path in loadStuff2). Used by the trace-parity harness:
+    // two runs with the same SOR_SEED must generate identical worlds.
+    // Applied at generation kickoff because QuitToMainMenuClearStuff wipes
+    // userSetSeed during the boot-to-menu flow.
+    [HarmonyPatch(typeof(LoadLevel), "loadStuff")]
+    internal static class ForceSeed_Patch
+    {
+        private static void Prefix(LoadLevel __instance)
+        {
+            var gc = GameController.gameController;
+            if (gc == null)
+                return;
+
+            // Single-player level loads reuse sessionData.randomListTable when
+            // it is non-empty (RandomSelection.LoadRandomness). A HomeBase ->
+            // level-1 transition can leave a PARTIAL table (early lists only);
+            // loadStuff2 then dies on randomListTable["SyringeContents"] and
+            // the load wedges forever. Clear partial tables so the game
+            // refills them from scratch.
+            if (gc.sessionData != null && gc.sessionData.randomListTable != null
+                && gc.sessionData.randomListTable.Count != 0
+                && (!gc.sessionData.randomListTable.ContainsKey("SyringeContents")      // late fill (LoadRandomness)
+                    || !gc.sessionData.randomListTable.ContainsKey("FloorTilesBuilding"))) // early fill (LoadRandomnessEarly)
+            {
+                EightPlayersPlugin.Log.LogWarning(
+                    $"sessionData.randomListTable is partial ({gc.sessionData.randomListTable.Count} lists) - clearing so the game refills it");
+                gc.sessionData.randomListTable.Clear();
+                if (gc.sessionData.randomListTableStatic != null)
+                    gc.sessionData.randomListTableStatic.Clear();
+                // The refill only happens while setupRandomness is false —
+                // on mid-session loads it is already true and the cleared
+                // table stays EMPTY, killing loadStuff2 (KeyNotFound
+                // 'SyringeContents') and wedging the level load forever.
+                if (gc.randomSelection != null)
+                    gc.randomSelection.setupRandomness = false;
+            }
+
+            var seed = System.Environment.GetEnvironmentVariable("SOR_SEED")
+                       ?? EcsNet.EcsNetManager.AdoptedSeed;
+            if (string.IsNullOrEmpty(seed) || gc.sessionDataBig == null)
+                return;
+            gc.sessionDataBig.userSetSeed = seed;
+            EightPlayersPlugin.Log.LogInfo($"Forcing map seed '{seed}' at level load (env or room world)");
+        }
+    }
+
     // When the game starts without a reachable Steam client (e.g. a second window
     // launched directly for split-screen-style play), vanilla falls back to GOG
     // Galaxy. The Steam build ships no Galaxy native library, so every frame throws
@@ -208,6 +299,27 @@ namespace EightPlayers
     internal static class NoGalaxyShutdown_Patch
     {
         private static bool Prefix() => NoSteamFallback_Patch.SteamUp();
+    }
+
+    // A StatusEffectDisplay HUD widget can survive a level teardown and get
+    // awakened (GameController.AwakenObjects) before the new level's player
+    // is bound to its NonClickableGUI. Its RealStartB then NREs INSIDE the
+    // WaitForRealStart load coroutine, killing it — the level generates
+    // empty (agents=1, objects=0) and the game wedges forever. Observed
+    // repeatedly in solo level transitions with the ECS layer active. A
+    // stale HUD widget must not kill level loading: log and swallow; the
+    // widget re-binds on the next RealStart pass.
+    [HarmonyPatch(typeof(StatusEffectDisplay), "RealStartB")]
+    internal static class StatusDisplayLoadGuard_Patch
+    {
+        private static System.Exception Finalizer(System.Exception __exception, StatusEffectDisplay __instance)
+        {
+            if (__exception != null)
+                EightPlayersPlugin.Log.LogWarning(
+                    $"StatusEffectDisplay.RealStartB threw {__exception.GetType().Name} on '{__instance?.name}' "
+                    + $"(parent '{__instance?.transform?.parent?.name}') - suppressed so the level load survives");
+            return null;
+        }
     }
 
     // The multiplayer menu contains a fully functional LAN (direct IP host/join) page

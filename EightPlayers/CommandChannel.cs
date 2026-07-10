@@ -21,6 +21,18 @@ namespace EightPlayers
     //   remap                         re-run the Zero 2 auto-layout from scratch
     //   nintendo <on|off>             flip printed-label mode and remap
     //   enable <category> <on|off>    enable/disable a joystick map category for p0
+    //
+    // Game-state manipulation (GameStateApi; every mutation shows up in the
+    // SOR_TRACE behavior trace, which is how tests assert on it):
+    //   state                         level/seed/agent summary
+    //   agents                        list live agents (uid, type, pos, hp)
+    //   spawnagent <type> <x> <y>     spawn an NPC (e.g. spawnagent Thief 10 12)
+    //   hp <uid> <delta>              change health (negative damages)
+    //   kill <uid>                    kill an agent
+    //   give <uid> <item> [count]     add inventory item
+    //   drop <uid> <item>             drop inventory item
+    //   tp <uid> <x> <y>              teleport an agent
+    //   opendoor <uid>                open a door by UID
     internal static class CommandChannel
     {
         private static float next;
@@ -78,9 +90,297 @@ namespace EightPlayers
                     Out($"nintendo labels {parts[1]}, remapping");
                     break;
                 case "enable": Enable(parts[1], parts[2] == "on"); break;
+                case "state": Out(GameStateApi.Summary()); break;
+                case "ecs":
+                    Out(EcsNet.EcsNetManager.Instance != null
+                        ? EcsNet.EcsNetManager.Instance.DebugDump()
+                        : "no EcsNetManager");
+                    break;
+                case "screenshot":
+                {
+                    var path = parts.Length > 1 ? cmd.Substring("screenshot ".Length).Trim() : $"screenshot-{DateTime.Now:HHmmss}.png";
+                    UnityEngine.ScreenCapture.CaptureScreenshot(path);
+                    Out($"screenshot requested -> {path} (written by the game next frame)");
+                    break;
+                }
+                case "record":
+                {
+                    // record <seconds> <fps> [dirname] — frame sequence via the
+                    // game's own framebuffer (compositor-independent); encode
+                    // externally with ffmpeg. Paths resolve to the game's
+                    // <Data> dir; the dir must already exist.
+                    float secs = float.Parse(parts[1]);
+                    int fps = int.Parse(parts[2]);
+                    string dir = parts.Length > 3 ? parts[3] : "rec";
+                    EightPlayersPlugin.Instance.StartCoroutine(RecordFrames(secs, fps, dir));
+                    Out($"recording {secs}s at {fps}fps into {dir}/");
+                    break;
+                }
+                case "room":
+                    EcsNet.EcsNetManager.Instance?.JoinRoom(parts[1]);
+                    Out($"joining room {parts[1].ToUpperInvariant()}");
+                    break;
+                case "leave":
+                    EcsNet.EcsNetManager.Instance?.LeaveRoom();
+                    Out("left room");
+                    break;
+                case "npcs":
+                    if (EcsNet.EcsNetManager.Instance != null)
+                        foreach (var line in EcsNet.EcsNetManager.Instance.DescribeNpcRegistry())
+                            Out(line);
+                    break;
+                case "agents":
+                    foreach (var agent in GameStateApi.Agents())
+                        Out("  " + GameStateApi.DescribeAgent(agent));
+                    break;
+                case "spawnagent":
+                {
+                    var spawned = GameStateApi.SpawnAgent(parts[1], ParseVec(parts[2], parts[3]));
+                    Out($"spawned {GameStateApi.DescribeAgent(spawned)}");
+                    break;
+                }
+                case "hp":
+                {
+                    var hp = GameStateApi.ChangeHealth(int.Parse(parts[1]), float.Parse(parts[2]));
+                    Out($"agent {parts[1]} health now {hp:0.#}");
+                    break;
+                }
+                case "kill":
+                    GameStateApi.Kill(int.Parse(parts[1]));
+                    Out($"agent {parts[1]} killed");
+                    break;
+                case "status":
+                {
+                    bool on = parts.Length < 4 || parts[3] != "off";
+                    GameStateApi.SetStatus(int.Parse(parts[1]), parts[2], on);
+                    Out($"agent {parts[1]} status {parts[2]} {(on ? "on" : "off")}");
+                    break;
+                }
+                case "statuses":
+                    Out($"agent {parts[1]} statuses: {string.Join(",", new List<string>(GameStateApi.Statuses(int.Parse(parts[1]))).ToArray())}");
+                    break;
+                case "give":
+                    GameStateApi.GiveItem(int.Parse(parts[1]), parts[2], parts.Length > 3 ? int.Parse(parts[3]) : 1);
+                    Out($"gave {parts[2]} to agent {parts[1]}");
+                    break;
+                case "drop":
+                    GameStateApi.DropItem(int.Parse(parts[1]), parts[2]);
+                    Out($"agent {parts[1]} dropped {parts[2]}");
+                    break;
+                case "equip":
+                    GameStateApi.EquipWeapon(int.Parse(parts[1]), parts[2]);
+                    Out($"agent {parts[1]} equipped {parts[2]}");
+                    break;
+                case "tp":
+                    GameStateApi.Teleport(int.Parse(parts[1]), ParseVec(parts[2], parts[3]));
+                    Out($"agent {parts[1]} teleported to {parts[2]},{parts[3]}");
+                    break;
+                case "opendoor":
+                    GameStateApi.OpenDoor(int.Parse(parts[1]),
+                        parts.Length > 2 ? GameStateApi.FindAgent(int.Parse(parts[2])) : null);
+                    Out($"door {parts[1]} opened{(parts.Length > 2 ? $" by agent {parts[2]}" : "")}");
+                    break;
+                case "lockdoor":
+                {
+                    bool nowLocked = GameStateApi.LockDoor(int.Parse(parts[1]), parts.Length < 3 || parts[2] != "off");
+                    Out($"door {parts[1]} locked={nowLocked}");
+                    break;
+                }
+                case "objects":
+                {
+                    var gc = GameController.gameController;
+                    UnityEngine.Vector2 origin = gc?.playerAgent != null ? (UnityEngine.Vector2)gc.playerAgent.tr.position : UnityEngine.Vector2.zero;
+                    var objs = new List<ObjectReal>(GameStateApi.Objects());
+                    objs.RemoveAll(o => o.tr == null || o is Door);
+                    objs.Sort((a, b) =>
+                        ((UnityEngine.Vector2)a.tr.position - origin).sqrMagnitude
+                        .CompareTo(((UnityEngine.Vector2)b.tr.position - origin).sqrMagnitude));
+                    for (int i = 0; i < objs.Count && i < 15; i++)
+                    {
+                        var o = objs[i];
+                        UnityEngine.Vector2 p = o.tr.position;
+                        Out($"  object uid={o.UID} '{o.objectName}' pos=({p.x:0.#},{p.y:0.#}) destroying={o.destroying}");
+                    }
+                    break;
+                }
+                case "destroyobj":
+                    GameStateApi.DestroyObject(int.Parse(parts[1]));
+                    Out($"object {parts[1]} destroyed");
+                    break;
+                case "containers":
+                {
+                    var gc = GameController.gameController;
+                    UnityEngine.Vector2 origin = gc?.playerAgent != null ? (UnityEngine.Vector2)gc.playerAgent.tr.position : UnityEngine.Vector2.zero;
+                    var cs = new List<ObjectReal>(GameStateApi.Containers());
+                    cs.Sort((a, b) =>
+                        ((UnityEngine.Vector2)a.tr.position - origin).sqrMagnitude
+                        .CompareTo(((UnityEngine.Vector2)b.tr.position - origin).sqrMagnitude));
+                    for (int i = 0; i < cs.Count && i < 10; i++)
+                    {
+                        UnityEngine.Vector2 p = cs[i].tr.position;
+                        Out($"  container uid={cs[i].UID} '{cs[i].objectName}' pos=({p.x:0.#},{p.y:0.#}) items={cs[i].objectInvDatabase.InvItemList.Count}");
+                    }
+                    break;
+                }
+                case "chestgive":
+                    GameStateApi.ChestGive(ParseVec(parts[1], parts[2]), parts[3]);
+                    Out($"container at {parts[1]},{parts[2]} given {parts[3]}");
+                    break;
+                case "shoptake":
+                    GameStateApi.ShopTake(int.Parse(parts[1]), parts[2]);
+                    Out($"took {parts[2]} from agent {parts[1]}");
+                    break;
+                case "chesttake":
+                    GameStateApi.ChestTake(ParseVec(parts[1], parts[2]), parts[3]);
+                    Out($"took {parts[3]} from container at {parts[1]},{parts[2]}");
+                    break;
+                case "chestitems":
+                {
+                    var chest = GameStateApi.FindContainerAt(ParseVec(parts[1], parts[2]));
+                    if (chest == null) { Out("no container there"); break; }
+                    foreach (var it in chest.objectInvDatabase.InvItemList)
+                        Out($"  item '{it?.invItemName}' x{it?.invItemCount}");
+                    Out($"container '{chest.objectName}': {chest.objectInvDatabase.InvItemList.Count} item(s)");
+                    break;
+                }
+                case "fires":
+                {
+                    int n = 0;
+                    foreach (var fire in GameStateApi.Fires())
+                    {
+                        if (fire.tr == null) continue;
+                        UnityEngine.Vector2 p = fire.tr.position;
+                        Out($"  fire pos=({p.x:0.#},{p.y:0.#}) destroying={fire.destroying}");
+                        if (++n >= 15) break;
+                    }
+                    Out($"fires: {n} shown");
+                    break;
+                }
+                case "spawngas":
+                {
+                    var src = GameStateApi.FindObjectReal(int.Parse(parts[1]));
+                    if (src == null) { Out($"no object {parts[1]}"); break; }
+                    GameStateApi.SpawnGas(src, src.tr.position, parts.Length > 2 ? parts[2] : "Flammable");
+                    Out($"gas spawned at object {parts[1]}");
+                    break;
+                }
+                case "ignite":
+                    GameStateApi.Ignite(ParseVec(parts[1], parts[2]));
+                    Out($"fire ignited at {parts[1]},{parts[2]}");
+                    break;
+                case "extinguish":
+                    GameStateApi.Extinguish(ParseVec(parts[1], parts[2]));
+                    Out($"fire extinguished at {parts[1]},{parts[2]}");
+                    break;
+                case "worldhash":
+                {
+                    var gc = GameController.gameController;
+                    Out($"worldhash {GameStateApi.WorldHash():x8} seed={gc?.loadLevel?.randomSeedNum} level={gc?.sessionDataBig?.curLevel}");
+                    break;
+                }
+                case "entities":
+                {
+                    var mgr = EcsNet.EcsNetManager.Instance;
+                    if (mgr == null) { Out("no EcsNetManager"); break; }
+                    int n = 0;
+                    foreach (var line in mgr.HarnessEntities()) { Out("  " + line); n++; }
+                    Out($"entities: {n}");
+                    break;
+                }
+                case "ecsget":
+                {
+                    var json = EcsNet.EcsNetManager.Instance?.HarnessGet(int.Parse(parts[1]));
+                    Out(json ?? $"no entity {parts[1]}");
+                    break;
+                }
+                case "ecsset":
+                {
+                    // ecsset <entity> <json>  (json must contain no spaces)
+                    EcsNet.EcsNetManager.Instance?.HarnessSet(int.Parse(parts[1]),
+                        Newtonsoft.Json.Linq.JObject.Parse(cmd.Substring(cmd.IndexOf(parts[1]) + parts[1].Length).Trim()));
+                    Out($"set sent for entity {parts[1]}");
+                    break;
+                }
+                case "ecsevent":
+                {
+                    // ecsevent <name> [json]
+                    var data = parts.Length > 2
+                        ? Newtonsoft.Json.Linq.JObject.Parse(cmd.Substring(cmd.IndexOf(parts[2])))
+                        : new Newtonsoft.Json.Linq.JObject();
+                    EcsNet.EcsNetManager.Instance?.HarnessEvent(parts[1], data);
+                    Out($"event '{parts[1]}' sent");
+                    break;
+                }
+                case "move":
+                    VirtualInput.Move(ParseVec(parts[1], parts[2]), parts.Length > 3 ? float.Parse(parts[3]) : 1f);
+                    Out($"moving ({parts[1]},{parts[2]}) for {(parts.Length > 3 ? parts[3] : "1")}s");
+                    break;
+                case "walkto":
+                    VirtualInput.WalkTo(ParseVec(parts[1], parts[2]), parts.Length > 3 ? float.Parse(parts[3]) : 15f);
+                    Out($"walking to ({parts[1]},{parts[2]})");
+                    break;
+                case "hold":
+                    VirtualInput.Hold(parts[1], parts.Length > 2 ? float.Parse(parts[2]) : 0.5f);
+                    Out($"holding {parts[1]}");
+                    break;
+                case "stop":
+                    VirtualInput.Stop();
+                    Out("virtual input cleared");
+                    break;
+                case "input":
+                    Out(VirtualInput.Describe());
+                    break;
+                case "doors":
+                {
+                    var gc = GameController.gameController;
+                    UnityEngine.Vector2 origin = gc?.playerAgent != null ? (UnityEngine.Vector2)gc.playerAgent.tr.position : UnityEngine.Vector2.zero;
+                    var doors = new List<Door>(GameStateApi.Doors());
+                    doors.Sort((a, b) =>
+                        ((UnityEngine.Vector2)a.tr.position - origin).sqrMagnitude
+                        .CompareTo(((UnityEngine.Vector2)b.tr.position - origin).sqrMagnitude));
+                    for (int i = 0; i < doors.Count && i < 10; i++)
+                    {
+                        var d = doors[i];
+                        UnityEngine.Vector2 p = d.tr.position;
+                        Out($"  door uid={d.UID} type={d.doorType} open={d.open} pos=({p.x:0.#},{p.y:0.#})");
+                    }
+                    break;
+                }
+                case "nextlevel":
+                    GameController.gameController.loadLevel.NextLevel();
+                    Out("next level triggered");
+                    break;
+                case "reloadlevel":
+                    LoadWatchdog.ForceReload();
+                    Out("level reload forced (watchdog path)");
+                    break;
+                case "items":
+                {
+                    var gc = GameController.gameController;
+                    UnityEngine.Vector2 origin = gc?.playerAgent != null ? (UnityEngine.Vector2)gc.playerAgent.tr.position : UnityEngine.Vector2.zero;
+                    var items = new List<Item>(GameStateApi.GroundItems());
+                    items.Sort((a, b) =>
+                        ((UnityEngine.Vector2)a.tr.position - origin).sqrMagnitude
+                        .CompareTo(((UnityEngine.Vector2)b.tr.position - origin).sqrMagnitude));
+                    for (int i = 0; i < items.Count && i < 10; i++)
+                    {
+                        UnityEngine.Vector2 p = items[i].tr.position;
+                        Out($"  item '{items[i].invItem?.invItemName}' pos=({p.x:0.#},{p.y:0.#})");
+                    }
+                    break;
+                }
+                case "pickup":
+                    // pickup <agentUid> <x> <y> <itemName>
+                    GameStateApi.PickUpGroundItem(int.Parse(parts[1]), ParseVec(parts[2], parts[3].Split(' ')[0]),
+                        parts[3].Contains(" ") ? parts[3].Substring(parts[3].IndexOf(' ') + 1) : null);
+                    Out("pickup attempted");
+                    break;
                 default: Out("unknown command"); break;
             }
         }
+
+        private static Vector2 ParseVec(string x, string y) =>
+            new Vector2(float.Parse(x), float.Parse(y));
 
         private static Player P0 => ReInput.players.GetPlayer(0);
 
@@ -200,6 +500,18 @@ namespace EightPlayers
         {
             int n = P0.controllers.maps.SetMapsEnabled(state, ControllerType.Joystick, category);
             Out($"category '{category}' -> {(state ? "on" : "off")} ({n} map(s))");
+        }
+
+        private static System.Collections.IEnumerator RecordFrames(float seconds, int fps, string dir)
+        {
+            int total = (int)(seconds * fps);
+            var wait = new UnityEngine.WaitForSecondsRealtime(1f / fps);
+            for (int i = 0; i < total; i++)
+            {
+                UnityEngine.ScreenCapture.CaptureScreenshot($"{dir}/f{i:D5}.png");
+                yield return wait;
+            }
+            Out($"recording done: {total} frames in {dir}/");
         }
 
         private static void Out(string line)
