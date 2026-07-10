@@ -245,8 +245,19 @@ namespace EightPlayers
             var qualified = seed + "#" + (lvl < 1 ? 1 : lvl);
             gc.sessionDataBig.userSetSeed = qualified;
             __instance.randomSeedNum = 0;   // always re-derive from the string
-            if (gc.sessionData != null && gc.sessionData.usedChunks != null)
-                gc.sessionData.usedChunks.Clear();
+            if (gc.sessionData != null)
+            {
+                if (gc.sessionData.usedChunks != null)
+                    gc.sessionData.usedChunks.Clear();
+                // loadStuff calls sessionData.RetrieveSeeds() AFTER this
+                // prefix when gotData is set (observed: the room claimer's
+                // menu session stores seeds, the follower's doesn't) — it
+                // would restore the stale seeds over our zeroing and skip
+                // the userSetSeed derivation entirely. Zero the stored
+                // copies so the restore is a no-op.
+                gc.sessionData.randomSeedNum = 0;
+                gc.sessionData.randomSeedLetter = "";
+            }
             EightPlayersPlugin.Log.LogInfo($"Forcing map seed '{seed}' at level load (level {lvl}, qualified '{qualified}')");
         }
     }

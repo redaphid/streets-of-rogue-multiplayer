@@ -65,35 +65,27 @@ launch() { # <inst> <name> <port>
     -- $gfx > "$RD/$1/stdout.log" 2>&1
 }
 
-# start_recording <inst> — fire the in-game recorder (frames land under the
-# clone; encoded at the end of the run). 10fps for the whole scenario. Waits
-# until the plugin consumes (deletes) the command file so the next cmd()
-# write can't clobber it.
+# start_recording <inst> — host-side x11grab of the instance's window (see
+# proton_env.sh; the in-game recorder is dead under Proton). Also drags the
+# window onto the user's current workspace so the run is watchable — wine
+# tends to open it on another one.
+REC_PIDS=""
+KNOWN_WINDOWS="$(game_window_ids | tr '\n' ' ')"
 start_recording() {
-  mkdir -p "$(clone_dir "$1")/rec"
-  printf 'record 1200 10 rec\n' > "$(cmdf "$1")"
-  for _ in $(seq 1 20); do [ -f "$(cmdf "$1")" ] || return 0; sleep 0.5; done
-}
-
-encode_recordings() {
+  local win
+  win=$(wait_new_window 120 $KNOWN_WINDOWS) || { echo "  (no window for $1 - not recording)"; return 0; }
+  KNOWN_WINDOWS="$KNOWN_WINDOWS $win"
+  wmctrl -i -r "$win" -t "$(wmctrl -d | awk '$2=="*"{print $1}')" 2>/dev/null
   mkdir -p "$REPO/outputs/recordings"
-  for inst in ecs0 ecs1; do
-    local frames
-    frames=$(find "$CLONES/$inst" "$GAME" -type d -name rec 2>/dev/null | head -1)
-    [ -n "$frames" ] && [ -n "$(ls "$frames" 2>/dev/null)" ] || continue
-    ffmpeg -y -framerate 10 -i "$frames/f%05d.png" -c:v libx264 -pix_fmt yuv420p \
-      "$REPO/outputs/recordings/e2e-$MODE-$inst-$(date +%Y%m%d-%H%M%S).mp4" </dev/null >/dev/null 2>&1 \
-      && rm -rf "$frames"
-  done
-  echo "recordings in outputs/recordings/"
+  REC_PIDS="$REC_PIDS $(start_x11_recording "$win" "$REPO/outputs/recordings/e2e-$MODE-$1-$(date +%Y%m%d-%H%M%S).mp4")"
+  echo "  (recording $1 window $win)"
 }
 
 player_uid() { cmd "$1" state | grep "player:" | grep -o 'uid=[0-9]*' | head -1 | cut -d= -f2; }
 
 cleanup() {
+  [ -n "$REC_PIDS" ] && { stop_x11_recording $REC_PIDS; echo "recordings in outputs/recordings/"; }
   kill_sor
-  [ "$VIDEO" = "1" ] && encode_recordings
-  true
 }
 trap cleanup EXIT
 
@@ -110,7 +102,6 @@ pgrep -f '/app/bin/steam' >/dev/null && \
 make_win_clone ecs0
 make_win_clone ecs1
 rm -f "$(log ecs0)" "$(log ecs1)" "$(outf ecs0)" "$(outf ecs1)" "$(cmdf ecs0)" "$(cmdf ecs1)"
-rm -rf "$(clone_dir ecs0)/rec" "$(clone_dir ecs1)/rec"
 
 echo "[1/8] boot + shared world"
 launch ecs0 E2EA 7777

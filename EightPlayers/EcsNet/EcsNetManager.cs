@@ -1052,8 +1052,11 @@ namespace EightPlayers.EcsNet
                         ["type"] = type.ToString(),
                         ["e"] = lp.Entity,
                     }));
+                    EightPlayersPlugin.Log.LogInfo(
+                        $"ECSNET bullet published at ({p.x:0.#},{p.y:0.#}) type={type} e={lp.Entity}");
                     return;
                 }
+            EightPlayersPlugin.Log.LogInfo("ECSNET bullet fired but no local entity matched the shooter - not published");
         }
 
         /// <summary>Same suppression for the ObjectReal.DestroyMe hook.</summary>

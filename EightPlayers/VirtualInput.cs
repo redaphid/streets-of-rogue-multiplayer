@@ -127,8 +127,19 @@ namespace EightPlayers
             foreach (var k in expired)
                 _buttonsUntil.Remove(k);
         }
+
     }
 
+    // NOTE (2026-07-10): virtual buttons drive the held/pressed arrays, which
+    // covers movement and some interactions — but WEAPON FIRING reads input
+    // through other paths entirely (PlayerControl.keyCheck/keyCheckHeld/
+    // useItemCheck/pressButtonDown all query Rewired devices directly), so
+    // `hold attack` cannot fire a gun. Patching those sites one by one was
+    // tried and rejected as whack-a-mole (keyCheck/keyCheckHeld postfixes
+    // alone demonstrably did NOT fire guns). The clean replacement is a
+    // Rewired CustomController per local player, driven by the ECS `input`
+    // intent — see docs/ecs-migration-plan.md. Until that plank lands, e2e
+    // [15/15] (bullet tracers via input intent) is its standing red marker.
     [HarmonyPatch(typeof(PlayerControl), "Update")]
     internal static class VirtualInput_Patch
     {

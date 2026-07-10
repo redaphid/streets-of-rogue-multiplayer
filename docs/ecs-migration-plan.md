@@ -1,11 +1,59 @@
 # Ship-of-Theseus ECS migration plan
 
-The goal, stated by the user: **replace the game's systems with ECS one at a
-time — swapping planks while the ship sails** — until the game logic runs as
-ECS systems in the worker (Cloudflare Durable Object) and the Unity game is a
-view/actuator. Each swap is verified e2e before AND after, TDD style, with
-gameplay video as evidence. No big-bang cutover, ever; every commit leaves a
-playable game.
+The goal, refined 2026-07-10: **extract Streets of Rogue's RULES into an
+ergonomic, deterministic ECS simulation** — one plank at a time, while the
+ship sails — so that (a) Claude can interact with the live rules through an
+MCP server, (b) rules e2e becomes deterministic-by-construction golden
+replays in milliseconds instead of 20-minute Unity gates, and (c) rules
+interact through shared components (fire spreads to anything `flammable`),
+enabling the emergent behavior at the heart of the genre. The Unity game is
+progressively demoted to renderer/actuator. Each swap is verified e2e before
+AND after, TDD style, with gameplay video as evidence. No big-bang cutover,
+ever; every commit leaves a playable game.
+
+## Two repos
+
+- **`rogue-brain`** (github.com/redaphid/rogue-brain, private) — the game
+  brain: deterministic sim kernel (fixed tick, seeded PRNG in world state,
+  queries, snapshot/restore, `hashWorld` golden replays), extracted rule
+  systems, MCP server, and eventually the Durable Object host + JS client.
+  NEVER contains decompiled game code — rules are re-authored from observed
+  behavior. See its docs/HANDOFF.md.
+- **This repo** — the Unity-side actuator/view: EightPlayers mod, TestDriver,
+  Proton e2e harness, trace/parity tooling, and the decompiled reference
+  (local-only, gitignored). It is the **parity oracle**: JSONL traces
+  captured here are the fixtures rogue-brain systems are verified against.
+  The 41-assertion gate here is the cross-repo integration test.
+
+The current worker protocol (`worker/src/protocol.ts` ↔ `Protocol.cs`,
+hand-synced) is **transitional scaffolding** for the Unity-computes era —
+ownership rules, seed claiming, position-addressed events and divergence
+healing all exist only because two Unity sims must converge. The durable
+seam is versioned **intents in / state out**; the legacy messages shrink
+plank by plank. The worker stays in this repo until the first sim-hosted
+plank lands in rogue-brain, then migrates there.
+
+## Known hack piles and their clean replacements
+
+Two places where the current code fights the game instead of owning state —
+each has an approved clean pattern that a plank replaces it with:
+
+1. **Generation determinism forensics** (`ForceSeed_Patch`: qualified seed,
+   randomSeedNum re-derivation, usedChunks clear, sessionData seed zeroing).
+   Works (41/42), but it's whack-a-mole against hidden generation inputs.
+   Clean pattern (already user-approved in ecs-systems.md): **wlayout
+   adoption** — the authority's layout is authoritative room state; followers
+   spawn/remove local objects to match instead of praying regeneration
+   converges. Seed normalization then becomes a cheap first-order alignment.
+2. **Input injection whack-a-mole** (VirtualInput array pokes + pressed-edge
+   pulses + keyCheck/keyCheckHeld postfixes — the game reads input from at
+   least three different places). Clean pattern: **one Rewired
+   CustomController per local player** driven by the `input` intent
+   component — flows through every GetButton/GetAxis path like a real
+   device, deletes all the patches. (keyCheck/keyCheckHeld postfixes were
+   tried 2026-07-10 and did NOT make guns fire — there are more direct-read
+   sites; site-by-site patching is rejected.) e2e [15/15] stays red as this
+   plank's standing TDD marker.
 
 Companions: [ecs-systems.md](ecs-systems.md) (per-system reference of what is
 already synced), [ecs-netcode.md](ecs-netcode.md) (architecture),

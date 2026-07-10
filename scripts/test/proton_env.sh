@@ -64,20 +64,76 @@ make_win_clone() {
 
 # launch_win <name> <extra flatpak --env args...> -- <unity args...>
 # Boots the clone through Proton in the background. Caller redirects output.
+# VDESK=<res> (e.g. VDESK=960x540) launches inside a Wine virtual desktop
+# named after the instance — on this Wayland/XWayland session a plain
+# windowed/-popupwindow Unity window is created but never MAPPED (audio, no
+# picture; discovered by the main-branch agent with the user); the virtual
+# desktop forces a real visible window and blocks exclusive-fullscreen
+# grabs. Use for every headed/recorded instance; headless doesn't need it.
 launch_win() {
     local name="$1"; shift
     local envs=()
     while [ $# -gt 0 ] && [ "$1" != "--" ]; do envs+=("$1"); shift; done
     [ "${1:-}" = "--" ] && shift
     local c="$CLONES/$name/game"
+    local runline="exec \"$PROTON\" run ./StreetsOfRogue.exe $*"
+    [ -n "${VDESK:-}" ] && runline="exec \"$PROTON\" run explorer /desktop=$name,$VDESK StreetsOfRogue.exe $*"
     flatpak run --command=sh \
         --env=STEAM_COMPAT_DATA_PATH="$CLONES/$name/prefix" \
         --env=STEAM_COMPAT_CLIENT_INSTALL_PATH="$STEAM" \
         --env=WINEDLLOVERRIDES="winhttp=n,b" \
         "${envs[@]}" \
         com.valvesoftware.Steam -c \
-        "cd \"$c\"; exec \"$PROTON\" run ./StreetsOfRogue.exe $*" &
+        "cd \"$c\"; $runline" &
 }
 
-kill_sor() { pkill -9 -f "$SOR_PROC" 2>/dev/null; }
-sor_running() { pgrep -f "$SOR_PROC" >/dev/null; }
+# Kills/queries ONLY harness-owned instances (anything under $CLONES except
+# pad* — those are the user's interactive split-screen windows; the old
+# global 'StreetsOfRogue[.]exe' pkill wiped them out from under live play).
+# Match by process CWD: every process in an instance's tree (bwrap, sh,
+# proton's python, wine, the game) inherits the clone dir as its cwd.
+_harness_pids() {
+    local p cwd
+    for p in $(pgrep -f 'StreetsOfRogue|proton run' 2>/dev/null); do
+        cwd=$(readlink "/proc/$p/cwd" 2>/dev/null) || continue
+        case "$cwd" in
+            "$CLONES"/pad*) ;;
+            "$CLONES"/*) echo "$p";;
+        esac
+    done
+}
+kill_sor() { local pids; pids=$(_harness_pids); [ -n "$pids" ] && kill -9 $pids 2>/dev/null; true; }
+sor_running() { [ -n "$(_harness_pids)" ]; }
+
+# ---- host-side window recording -----------------------------------------
+# The in-game ScreenCapture recorder writes nothing under Proton (the
+# coroutine runs, no files appear anywhere in the prefix). Capture the X11
+# window from the HOST instead: ffmpeg x11grab -window_id works on the
+# XWayland windows wine creates (verified 2026-07-10; the old "x11grab is
+# black" finding applied to full-root :0 grabs of the native build).
+
+game_window_ids() { wmctrl -l 2>/dev/null | awk '/Streets of Rogue/{print $1}'; }
+
+# wait_new_window <timeout-s> [known ids...] -> prints the first id not in the known set
+wait_new_window() {
+    local t="$1"; shift
+    local known=" $* "
+    for _ in $(seq 1 "$t"); do
+        for id in $(game_window_ids); do
+            case "$known" in *" $id "*) ;; *) echo "$id"; return 0;; esac
+        done
+        sleep 1
+    done
+    return 1
+}
+
+# start_x11_recording <window-id> <out.mp4> [fps] -> prints recorder pid
+start_x11_recording() {
+    local id="$1" out="$2" fps="${3:-10}"
+    ffmpeg -y -f x11grab -window_id "$id" -framerate "$fps" -i "${DISPLAY:-:0}" \
+        -c:v libx264 -preset veryfast -pix_fmt yuv420p "$out" </dev/null >/dev/null 2>&1 &
+    echo $!
+}
+
+# stop_x11_recording <pid...> — SIGINT so ffmpeg finalizes the mp4 trailer
+stop_x11_recording() { kill -INT "$@" 2>/dev/null; sleep 2; kill -9 "$@" 2>/dev/null; true; }

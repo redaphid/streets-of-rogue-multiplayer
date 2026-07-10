@@ -21,20 +21,26 @@ STATE="$CLONES/.next-pad"
 
 mkdir -p "$CLONES"
 
-NUM_PADS=$(ls /dev/input/js* 2>/dev/null | wc -l)
-if [ "$NUM_PADS" -lt 1 ]; then
-    NUM_PADS=1
+# Which gamepad / instance slot to use. Each run advances to the next pad and
+# wraps after the last, so running the script N times gives you N windows bound
+# to pads 1..N. We do NOT auto-count /dev/input/js* because 8BitDo pads sleep
+# (and don't enumerate on the host anyway) — a napping pad would misassign
+# slots. Instead the count is fixed (SOR_PADS, default 2), and you can force a
+# specific pad by passing it as the first argument:  ./scripts/start.sh 2
+MAXPADS="${SOR_PADS:-2}"
+if [ -n "${1:-}" ]; then
+    PAD="$1"
+else
+    LAST=$(cat "$STATE" 2>/dev/null || echo 0)
+    PAD=$(( (LAST % MAXPADS) + 1 ))
 fi
-
-LAST=$(cat "$STATE" 2>/dev/null || echo 0)
-PAD=$(( (LAST % NUM_PADS) + 1 ))
 echo "$PAD" > "$STATE"
 
 NAME="pad$PAD"
 C="$CLONES/$NAME"
 PREFIX="$C/prefix"
 
-echo "Detected $NUM_PADS gamepad(s); using pad $PAD (instance: $NAME)"
+echo "Using pad $PAD of $MAXPADS (instance: $NAME) — wraps after pad $MAXPADS"
 
 if [ ! -d "$C/game" ]; then
     mkdir -p "$C/game/BepInEx"
@@ -77,4 +83,4 @@ exec flatpak run --command=sh \
     --env=WINEDLLOVERRIDES="winhttp=n,b" \
     --env=SOR_PAD="$PAD" \
     com.valvesoftware.Steam -c \
-    "cd \"$C/game\"; exec \"$PROTON\" run ./StreetsOfRogue.exe -screen-fullscreen 0 -window-mode windowed -screen-width 1280 -screen-height 720 -popupwindow"
+    "cd \"$C/game\"; exec \"$PROTON\" run explorer /desktop=sor$PAD,1280x720 StreetsOfRogue.exe -screen-fullscreen 0 -screen-width 1280 -screen-height 720"
