@@ -115,7 +115,9 @@ rm -rf "$(clone_dir ecs0)/rec" "$(clone_dir ecs1)/rec"
 echo "[1/8] boot + shared world"
 launch ecs0 E2EA 7777
 waitlog ecs0 "claiming room world seed" 300 && ok "A claimed room seed" || fail "A claimed room seed"
-SEED=$(grep -a "claiming room world seed" "$(log ecs0)" | grep -o "seed: .*" | cut -d' ' -f2)
+# tr -d '\r': BepInEx writes CRLF under Proton/Windows — a trailing \r in
+# $SEED breaks every pattern that embeds it mid-line.
+SEED=$(grep -a "claiming room world seed" "$(log ecs0)" | grep -o "seed: .*" | cut -d' ' -f2 | tr -d '\r')
 [ "$VIDEO" = "1" ] && start_recording ecs0
 launch ecs1 E2EB 7788
 waitlog ecs1 "room world seed: $SEED" 120 && ok "B adopted A's seed ($SEED)" || fail "B adopted A's seed"

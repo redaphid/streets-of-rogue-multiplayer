@@ -7,15 +7,20 @@ windowed (for screenshots/recording).
 
 ## 1. Launching instances
 
-Clone dirs bypass Unity's single-instance lock (hard-linked exe, symlinked
-data). Existing clones: `~/.var/app/com.valvesoftware.Steam/data/sor-clones/{ecs0,ecs1}`.
+Everything runs the WINDOWS build via Proton now (Steam removed the native
+Linux depot Jul 2026). `scripts/test/proton_env.sh` owns the clone/prefix
+mechanics — per-instance clone dir + wine prefix (seeded from the real save),
+`winhttp.dll` BepInEx injection. Clones live under
+`~/.var/app/com.valvesoftware.Steam/data/sor-clones-win/<name>/{game,prefix}`.
 
 ```sh
-CL="$HOME/.var/app/com.valvesoftware.Steam/data/sor-clones"
-flatpak run --command=sh \
-  --env=SOR_TEST_MODE=solo --env=SOR_TEST_NAME=DBGA --env=SOR_TEST_PORT=7777 --env=SOR_TEST_ADDR=127.0.0.1 \
+. scripts/test/proton_env.sh
+make_win_clone dbg0
+launch_win dbg0 \
+  --env=SOR_TEST_MODE=solo --env=SOR_TEST_NAME=DBGA \
   --env=SOR_ECS_ROOM=MYROOM --env=SOR_ECS_SERVER=ws://127.0.0.1:8787 --env=SOR_ECS_NAME=DBGA \
-  com.valvesoftware.Steam -c "C=\"$CL/ecs0\"; cd \"\$C\" && exec ./run_bepinex.sh -batchmode -nographics"
+  -- -batchmode -nographics > /dev/null 2>&1
+# BepInEx dir for the channel/logs: $(bepinex_dir dbg0)
 ```
 
 - `SOR_TEST_MODE=solo` auto-starts a single-player game (no menus);
@@ -121,16 +126,19 @@ cmd $A agents               # verify the hit landed
 
 ### Capture
 
-- `screenshot [file.png]` — `ScreenCapture.CaptureScreenshot`; relative
-  paths land in the REAL game dir's `StreetsOfRogueLinux_Data/` (clones
-  symlink Data). Needs a graphical instance.
+- `screenshot [file.png]` — `ScreenCapture.CaptureScreenshot`; under
+  Proton a relative path resolves against the clone's `game/` dir (the
+  wine CWD). Needs a graphical (windowed) instance — `-nographics`
+  captures nothing.
 - `record <seconds> <fps> [dir]` — frame sequence from the game's own
   framebuffer (compositor-independent — x11grab shows BLACK under
   rootless XWayland/Wayland, and GNOME's Screencast dbus dies with the
-  calling connection). Pre-create `<gamedir>/StreetsOfRogueLinux_Data/<dir>`,
-  then encode + clean:
+  calling connection). Pre-create `<clone>/game/<dir>`, then encode +
+  clean:
   `ffmpeg -framerate <fps> -i .../<dir>/f%05d.png -c:v libx264 -pix_fmt yuv420p out.mp4`
   (10 fps ≈ 3.3 MB/s of PNGs — delete the frames after encoding).
+  `E2E_VIDEO=1 scripts/test/e2e_scenario.sh` does all of this per gate run
+  into `outputs/recordings/`.
 
 ### Movement gates (why the character "won't move")
 

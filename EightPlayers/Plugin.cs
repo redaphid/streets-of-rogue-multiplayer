@@ -230,8 +230,24 @@ namespace EightPlayers
                        ?? EcsNet.EcsNetManager.AdoptedSeed;
             if (string.IsNullOrEmpty(seed) || gc.sessionDataBig == null)
                 return;
-            gc.sessionDataBig.userSetSeed = seed;
-            EightPlayersPlugin.Log.LogInfo($"Forcing map seed '{seed}' at level load (env or room world)");
+            // Generation must be a pure function of (room seed, level),
+            // independent of the LOAD HISTORY that led here. Vanilla breaks
+            // that two ways: loadStuff does randomSeedNum++ per replayed load
+            // (elevator path), and sessionData.usedChunks accumulates across
+            // every load in the session with generation EXCLUDING used chunks
+            // — so menu/demo worlds, adoption reloads and divergence-heal
+            // reloads all shift later maps even at identical seeds. Normalize
+            // all three inputs on every forced load: level-qualified seed
+            // string, numeric seed re-derived from it, empty chunk history.
+            // (Trade-off: chunk variety no longer carries across levels; every
+            // instance in the room makes the same trade, which is the point.)
+            int lvl = gc.sessionDataBig.curLevel;
+            var qualified = seed + "#" + (lvl < 1 ? 1 : lvl);
+            gc.sessionDataBig.userSetSeed = qualified;
+            __instance.randomSeedNum = 0;   // always re-derive from the string
+            if (gc.sessionData != null && gc.sessionData.usedChunks != null)
+                gc.sessionData.usedChunks.Clear();
+            EightPlayersPlugin.Log.LogInfo($"Forcing map seed '{seed}' at level load (level {lvl}, qualified '{qualified}')");
         }
     }
 
