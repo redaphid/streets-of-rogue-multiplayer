@@ -24,8 +24,17 @@ RD="$STEAM/data/sor-test/e2e"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 PASS=0; FAIL=0
 
-ok()   { echo "  ok - $1"; PASS=$((PASS+1)); }
-fail() { echo "FAIL - $1"; FAIL=$((FAIL+1)); }
+# Everything tees into a timestamped log; `tail -f outputs/logs/e2e-latest.log`
+# to watch a run live.
+LOG="$REPO/outputs/logs/e2e-$MODE-$(date +%Y%m%d-%H%M%S).log"
+mkdir -p "$REPO/outputs/logs"
+ln -sfn "$LOG" "$REPO/outputs/logs/e2e-latest.log"
+exec > >(tee "$LOG") 2>&1
+echo "log: $LOG  (tail -f outputs/logs/e2e-latest.log)"
+
+ts()   { date +%H:%M:%S; }
+ok()   { echo "$(ts)   ok - $1"; PASS=$((PASS+1)); }
+fail() { echo "$(ts) FAIL - $1"; FAIL=$((FAIL+1)); }
 check(){ if eval "$1"; then ok "$2"; else fail "$2"; fi; }
 
 # ---- helpers ------------------------------------------------------------
@@ -47,10 +56,12 @@ cmd() {
 
 # waitlog <inst> <pattern> <timeout-s>
 waitlog() {
+  echo "$(ts)   ... waiting on $1 for: $2 (${3}s max)"
   for _ in $(seq 1 "$3"); do
     grep -aq "$2" "$(log "$1")" 2>/dev/null && return 0
     sleep 1
   done
+  echo "$(ts)   ... timed out waiting on $1 for: $2"
   return 1
 }
 
