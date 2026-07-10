@@ -4,17 +4,24 @@
 # asserts every synced system along the way. Consolidates the per-iteration
 # verification chains into one repeatable regression suite.
 #
+# Instances run the WINDOWS build through Proton (see proton_env.sh — Steam
+# removed the native Linux depot). Clones are created/refreshed automatically.
+#
 # Usage: scripts/test/e2e_scenario.sh [ROOM]
-# Prereqs: wrangler dev running (cd worker && npm run dev), EightPlayers.dll
-# deployed to the game's BepInEx/plugins, clones ecs0/ecs1 present
-# (lan_swarm.sh make_clone pattern), no game instances running.
+#   E2E_MODE=solo   both instances as pure single-player (Mirror never starts)
+#   E2E_VIDEO=1     windowed instead of -batchmode; records each instance's
+#                   framebuffer for the whole run -> outputs/recordings/
+# Prereqs: wrangler dev running (cd worker && npm run dev), EightPlayers.dll +
+# SorTestDriver.dll deployed to the game's BepInEx/plugins, no game instances
+# running, Steam client closed.
 set -u
 
 ROOM="${1:-E2E$RANDOM}"
 MODE="${E2E_MODE:-host}"   # host = Mirror LAN self-host per instance; solo = single-player, Mirror never starts
-GAME="$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Streets of Rogue"
-CL="$HOME/.var/app/com.valvesoftware.Steam/data/sor-clones"
-RD="$HOME/.var/app/com.valvesoftware.Steam/data/sor-test/e2e"
+VIDEO="${E2E_VIDEO:-0}"
+. "$(dirname "$0")/proton_env.sh"
+RD="$STEAM/data/sor-test/e2e"
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 PASS=0; FAIL=0
 
 ok()   { echo "  ok - $1"; PASS=$((PASS+1)); }
@@ -22,9 +29,9 @@ fail() { echo "FAIL - $1"; FAIL=$((FAIL+1)); }
 check(){ if eval "$1"; then ok "$2"; else fail "$2"; fi; }
 
 # ---- helpers ------------------------------------------------------------
-log()  { echo "$CL/$1/BepInEx/LogOutput.log"; }
-cmdf() { echo "$CL/$1/BepInEx/ep_cmd.txt"; }
-outf() { echo "$CL/$1/BepInEx/ep_out.txt"; }
+log()  { echo "$(bepinex_dir "$1")/LogOutput.log"; }
+cmdf() { echo "$(bepinex_dir "$1")/ep_cmd.txt"; }
+outf() { echo "$(bepinex_dir "$1")/ep_out.txt"; }
 
 # cmd <inst> <command...>  — run a command-channel command, wait for output
 cmd() {
@@ -49,38 +56,70 @@ waitlog() {
 
 launch() { # <inst> <name> <port>
   mkdir -p "$RD/$1"
-  flatpak run --command=sh \
+  local gfx="-batchmode -nographics"
+  [ "$VIDEO" = "1" ] && gfx="-screen-fullscreen 0 -window-mode windowed -screen-width 960 -screen-height 540 -popupwindow"
+  launch_win "$1" \
     --env=SOR_TEST_MODE="$MODE" --env=SOR_TEST_NAME="$2" --env=SOR_TEST_PORT="$3" --env=SOR_TEST_ADDR=127.0.0.1 \
     --env=SOR_TEST_REPORT="$RD/$1/report.log" \
     --env=SOR_ECS_ROOM="$ROOM" --env=SOR_ECS_SERVER=ws://127.0.0.1:8787 --env=SOR_ECS_NAME="$2" \
-    com.valvesoftware.Steam -c \
-    "C=\"$CL/$1\"; cd \"\$C\" && exec ./run_bepinex.sh -batchmode -nographics" \
-    > "$RD/$1/stdout.log" 2>&1 &
+    -- $gfx > "$RD/$1/stdout.log" 2>&1
+}
+
+# start_recording <inst> — fire the in-game recorder (frames land under the
+# clone; encoded at the end of the run). 10fps for the whole scenario. Waits
+# until the plugin consumes (deletes) the command file so the next cmd()
+# write can't clobber it.
+start_recording() {
+  mkdir -p "$(clone_dir "$1")/rec"
+  printf 'record 1200 10 rec\n' > "$(cmdf "$1")"
+  for _ in $(seq 1 20); do [ -f "$(cmdf "$1")" ] || return 0; sleep 0.5; done
+}
+
+encode_recordings() {
+  mkdir -p "$REPO/outputs/recordings"
+  for inst in ecs0 ecs1; do
+    local frames
+    frames=$(find "$CLONES/$inst" "$GAME" -type d -name rec 2>/dev/null | head -1)
+    [ -n "$frames" ] && [ -n "$(ls "$frames" 2>/dev/null)" ] || continue
+    ffmpeg -y -framerate 10 -i "$frames/f%05d.png" -c:v libx264 -pix_fmt yuv420p \
+      "$REPO/outputs/recordings/e2e-$MODE-$inst-$(date +%Y%m%d-%H%M%S).mp4" </dev/null >/dev/null 2>&1 \
+      && rm -rf "$frames"
+  done
+  echo "recordings in outputs/recordings/"
 }
 
 player_uid() { cmd "$1" state | grep "player:" | grep -o 'uid=[0-9]*' | head -1 | cut -d= -f2; }
 
-cleanup() { pkill -9 -f 'StreetsOfRogue[L]inux' 2>/dev/null; }
+cleanup() {
+  kill_sor
+  [ "$VIDEO" = "1" ] && encode_recordings
+  true
+}
 trap cleanup EXIT
 
 # ---- scenario -----------------------------------------------------------
 echo "e2e scenario in room $ROOM (mode=$MODE)"
 curl -sf -m 3 http://127.0.0.1:8787/ >/dev/null || { echo "wrangler dev not running"; exit 2; }
-pgrep -f 'StreetsOfRogue[L]inux' >/dev/null && { echo "game instances already running"; exit 2; }
-# The clones run inside the Steam flatpak and share its app data. Launching
-# them while the real Steam client is up crash-loops the client's web helper
-# (shared CEF htmlcache/locks) — refuse to fight it.
-pgrep -f '/app/bin/steam' >/dev/null && {
-  echo "ABORT: the Steam client is running. Close it (or: flatpak kill com.valvesoftware.Steam) before running e2e."; exit 2; }
-rm -f "$CL"/ecs0/BepInEx/LogOutput.log "$CL"/ecs1/BepInEx/LogOutput.log \
-      "$CL"/ecs0/BepInEx/ep_out.txt "$CL"/ecs1/BepInEx/ep_out.txt
+sor_running && { echo "game instances already running"; exit 2; }
+# Proton instances coexist with a running Steam client (verified 2026-07-10;
+# the old native-Linux crash-loop via shared CEF htmlcache no longer applies),
+# but a Steam-launched game session would still fight the test over pads and
+# CPU — warn, don't abort.
+pgrep -f '/app/bin/steam' >/dev/null && \
+  echo "note: Steam client is running; ok for headless e2e, close it if instances misbehave"
+make_win_clone ecs0
+make_win_clone ecs1
+rm -f "$(log ecs0)" "$(log ecs1)" "$(outf ecs0)" "$(outf ecs1)" "$(cmdf ecs0)" "$(cmdf ecs1)"
+rm -rf "$(clone_dir ecs0)/rec" "$(clone_dir ecs1)/rec"
 
 echo "[1/8] boot + shared world"
 launch ecs0 E2EA 7777
-waitlog ecs0 "claiming room world seed" 180 && ok "A claimed room seed" || fail "A claimed room seed"
+waitlog ecs0 "claiming room world seed" 300 && ok "A claimed room seed" || fail "A claimed room seed"
 SEED=$(grep -a "claiming room world seed" "$(log ecs0)" | grep -o "seed: .*" | cut -d' ' -f2)
+[ "$VIDEO" = "1" ] && start_recording ecs0
 launch ecs1 E2EB 7788
 waitlog ecs1 "room world seed: $SEED" 120 && ok "B adopted A's seed ($SEED)" || fail "B adopted A's seed"
+[ "$VIDEO" = "1" ] && start_recording ecs1
 waitlog ecs1 "Forcing map seed '$SEED'" 120 && ok "B forced seed at level load" || fail "B forced seed at level load"
 
 echo "[2/8] avatars both directions"

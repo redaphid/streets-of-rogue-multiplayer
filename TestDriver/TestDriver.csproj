@@ -8,7 +8,10 @@
     <DebugType>embedded</DebugType>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <GameDir>/home/redaphid/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Streets of Rogue</GameDir>
-    <ManagedDir>$(GameDir)/StreetsOfRogueLinux_Data/Managed</ManagedDir>
+    <!-- Steam replaced the native Linux depot with the Windows build (run via
+         Proton) in Jul 2026; prefer the Linux Managed dir if it ever returns. -->
+    <ManagedDir>$(GameDir)/StreetsOfRogue_Data/Managed</ManagedDir>
+    <ManagedDir Condition="Exists('$(GameDir)/StreetsOfRogueLinux_Data/Managed/Assembly-CSharp.dll')">$(GameDir)/StreetsOfRogueLinux_Data/Managed</ManagedDir>
   </PropertyGroup>
 
   <ItemGroup>

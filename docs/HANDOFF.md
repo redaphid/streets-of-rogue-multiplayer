@@ -8,15 +8,24 @@ over WebSocket), designed so a JS/browser client can join later.
 `docs/ecs-systems.md` is the protocol spec + per-system reference;
 `docs/debug-harness.md` is the Claude-driven live-debug playbook.
 
-Game: Flatpak Steam, Linux, Unity 2022.3.60f1 Mono, AppID 512900, at
+Game: Flatpak Steam, **WINDOWS build via Proton 9.0** (Steam removed the
+native Linux depot Jul 2026 — only `StreetsOfRogue.exe` +
+`StreetsOfRogue_Data` remain), Unity 2022.3.60f1 Mono, AppID 512900, at
 `~/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Streets of Rogue`.
+BepInEx injects via `winhttp.dll` + `WINEDLLOVERRIDES=winhttp=n,b`. All csproj
+`ManagedDir`s point at `StreetsOfRogue_Data/Managed` (with an automatic
+fallback if the Linux depot ever returns). Test instances launch through
+`scripts/test/proton_env.sh` (per-instance clone dir + wine prefix, seeded
+with a copy of the real save — a blank prefix wedges menu automation).
 
 ## Branch map
 
-- `main` — pre-ECS phase 1.
-- `ecs-durable-objects` — the ported netcode, **e2e green 39/39 in both solo
-  and host modes** at `f9d6f0f`. Source of the v0.1.0 release.
-- `ecs-control-plane` — CURRENT WORK (see next section).
+- `main` — pre-ECS phase 1 + WizardMod.
+- `ecs` — CANONICAL ECS BRANCH (this one): merge of `ecs-control-plane`
+  (which fully contains `ecs-durable-objects` and `npc-dynamic-spawns`)
+  plus main's Wizard/TestDriver fixes plus the Proton harness port.
+  The old ECS branches are historical; work here.
+- Plan: `docs/ecs-migration-plan.md` — the ship-of-theseus plank order.
 
 ## Current work: ECS control plane (branch `ecs-control-plane`)
 
@@ -49,14 +58,14 @@ State at handoff (last commit `0174c00`):
    → green run solo, then host → docs (`ecs-systems.md` control-plane
    section) → commit+push.
 
-## CRITICAL operational rule (new)
+## Operational rule (revised 2026-07-10)
 
-**Never launch test instances while the real Steam client is running.** The
-clones share the Steam flatpak app data; a running client crash-loops its web
-helper (`Failed creating offscreen shared JS context`). `e2e_scenario.sh` now
-aborts if `/app/bin/steam` is up. Close Steam first:
-`flatpak kill com.valvesoftware.Steam`. Diagnosed 2026-07-08 after the user's
-Steam kept crashing.
+Proton test instances COEXIST with a running Steam client (verified live —
+the 2026-07-08 native-build crash-loop via shared CEF htmlcache no longer
+applies; the user's own `scripts/start.sh` relies on coexistence).
+`e2e_scenario.sh` warns instead of aborting. Still true: never overwrite a
+plugin dll while any instance is running (Mono lazy-loads metadata and
+hard-aborts), and kill strays with `pkill -9 -f 'StreetsOfRogue[.]exe'`.
 
 ## Running the gates
 
