@@ -241,8 +241,16 @@ namespace EightPlayers
             // string, numeric seed re-derived from it, empty chunk history.
             // (Trade-off: chunk variety no longer carries across levels; every
             // instance in the room makes the same trade, which is the point.)
+            // Level 1 (and the level-0 menu load) keep the RAW seed: the
+            // room CLAIMER's boot world is generated from vanilla's
+            // random-letter path (numeric = GetHashCode(letters)) and — in
+            // host mode — is never reloaded, so followers must derive the
+            // identical numeric seed. Levels 2+ get the level-qualified
+            // string so replayed loads (heals, follows) always re-derive the
+            // same per-level seed. (Uniform "#1" qualification broke host
+            // mode: follower hash(seed#1) != claimer hash(seed).)
             int lvl = gc.sessionDataBig.curLevel;
-            var qualified = seed + "#" + (lvl < 1 ? 1 : lvl);
+            var qualified = lvl > 1 ? seed + "#" + lvl : seed;
             gc.sessionDataBig.userSetSeed = qualified;
             __instance.randomSeedNum = 0;   // always re-derive from the string
             if (gc.sessionData != null)
