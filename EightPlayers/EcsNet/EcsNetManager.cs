@@ -1315,6 +1315,11 @@ namespace EightPlayers.EcsNet
             var letter = gc != null && gc.loadLevel != null ? gc.loadLevel.randomSeedLetter : null;
             if (string.IsNullOrEmpty(letter))
                 return;
+            // Claim the BASE seed only: if this world was generated from a
+            // level-qualified forced seed ("abc#2") or a stale one that
+            // leaked into the save's userSetSeed, claiming it verbatim
+            // compounds qualification across runs ("abc#2#3"...).
+            letter = letter.Split('#')[0];
             _client.Send(Protocol.World(letter));
             _worldClaimSent = true;
             EightPlayersPlugin.Log.LogInfo($"ECSNET claiming room world seed: {letter}");

@@ -230,6 +230,10 @@ namespace EightPlayers
                        ?? EcsNet.EcsNetManager.AdoptedSeed;
             if (string.IsNullOrEmpty(seed) || gc.sessionDataBig == null)
                 return;
+            // Base seed only — a stale qualified seed ("abc#2") can arrive
+            // here via a save-polluted claim; never compound qualification.
+            seed = seed.Split('#')[0];
+            _forcedThisLoad = true;
             // Generation must be a pure function of (room seed, level),
             // independent of the LOAD HISTORY that led here. Vanilla breaks
             // that two ways: loadStuff does randomSeedNum++ per replayed load
@@ -267,6 +271,23 @@ namespace EightPlayers
                 gc.sessionData.randomSeedLetter = "";
             }
             EightPlayersPlugin.Log.LogInfo($"Forcing map seed '{seed}' at level load (level {lvl}, qualified '{qualified}')");
+        }
+
+        private static bool _forcedThisLoad;
+
+        // The game PERSISTS sessionDataBig.userSetSeed in the save; a forced
+        // qualified seed leaking into it becomes the NEXT run's menu world
+        // and gets claimed as the room seed (observed live: run N+1 claimed
+        // run N's 'kcvkxwew#1' and worlds diverged 25/17). Clear it once
+        // generation has consumed it — but only when WE forced this load.
+        private static void Postfix()
+        {
+            if (!_forcedThisLoad)
+                return;
+            _forcedThisLoad = false;
+            var gc = GameController.gameController;
+            if (gc != null && gc.sessionDataBig != null)
+                gc.sessionDataBig.userSetSeed = "";
         }
     }
 
