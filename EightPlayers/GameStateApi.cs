@@ -615,6 +615,17 @@ namespace EightPlayers
             gc.tileInfo.BuildWallTileAtPosition(Mathf.Round(pos.x), Mathf.Round(pos.y), wallMaterialType.Normal);
         }
 
+        /// <summary>Lay a floor tile at a world cell (default Normal). Used by the
+        /// intentional-map builder to guarantee floor under a razed/rebuilt cell
+        /// so a later wall-destroy leaves walkable ground. Rounds to the grid.</summary>
+        public static void BuildFloor(Vector2 pos, floorMaterialType material = floorMaterialType.Normal)
+        {
+            var gc = GC;
+            if (gc == null || gc.tileInfo == null)
+                throw new InvalidOperationException("no game running");
+            gc.tileInfo.BuildFloorTileAtPosition(Mathf.Round(pos.x), Mathf.Round(pos.y), material);
+        }
+
         /// <summary>Spawn a free-standing gas cloud at a world cell. SpawnGas
         /// hard-casts its sourceObject to ObjectReal internally
         /// (gas.sourceObject = (ObjectReal)sourceObject), so an Agent source

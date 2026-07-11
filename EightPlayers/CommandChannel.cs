@@ -468,6 +468,21 @@ namespace EightPlayers
                     GameStateApi.BuildWall(ParseVec(parts[1], parts[2]));
                     Out($"wall built at {parts[1]},{parts[2]}");
                     break;
+                case "buildmap":
+                    // buildmap <base64 of .map text> — materialize an authored
+                    // level layout onto the current floor (rogue-gm#20). Base64
+                    // so the ASCII grid survives the one-line channel. Replies
+                    // JSON: {"anchors":{NAME:{x,y}},"built":{...},"bounds":{...}}.
+                    if (parts.Length < 2) { Out("usage: buildmap <base64 of .map text>"); break; }
+                    Out(MapBuilder.BuildFromBase64(parts[1]));
+                    break;
+                case "clearmap":
+                    // clearmap <x> <y> <w> <h> — raze a rectangle to bare floor
+                    // (top-left world cell x,y; w east +x, h south -y).
+                    if (parts.Length < 5) { Out("usage: clearmap <x> <y> <w> <h>"); break; }
+                    Out(MapBuilder.ClearRegion(int.Parse(parts[1]), int.Parse(parts[2]),
+                        int.Parse(parts[3]), int.Parse(parts[4])));
+                    break;
                 case "gascloud":
                 {
                     var gas = GameStateApi.GasCloud(ParseVec(parts[1], parts[2]), parts.Length > 3 ? parts[3] : "Poison");
