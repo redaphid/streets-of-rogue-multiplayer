@@ -101,6 +101,8 @@ any C# type exists for them.
 | `ignite <x> <y>` / `extinguish <x> <y>` | fire |
 | `nextlevel` | advance level (peers follow via room) |
 | `room <code>` / `leave` | join/leave an ECS room live |
+| `setmenu <uid> <b64json>` | custom NPC talk menu (DialogueMenu.cs): b64 of `["opt1",...]`, ≤6 options ≤40 chars each, `[]` flags with a `"..."` placeholder; a player's selection is pushed as a `menu_choice` event on `GET /events` and the menu closes |
+| `clearmenu <uid\|all>` | restore the vanilla talk menu |
 
 ### Drive the player (virtual input — real gameplay, not teleports)
 

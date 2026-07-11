@@ -350,7 +350,10 @@ namespace EightPlayers
                     _playerHp[a.UID] = a.health;
         }
 
-        private static void Broadcast(JObject frame)
+        /// <summary>Push one NDJSON event frame to every /events subscriber.
+        /// Internal so other features (e.g. DialogueMenu's menu_choice) can
+        /// emit on the same stream. Call from the main thread.</summary>
+        internal static void Broadcast(JObject frame)
         {
             var line = frame.ToString(Newtonsoft.Json.Formatting.None);
             EventClient[] clients;

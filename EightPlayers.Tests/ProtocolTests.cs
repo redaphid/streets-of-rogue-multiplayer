@@ -44,7 +44,7 @@ namespace EightPlayers.Tests
         [Fact]
         public void LevelComponentShape()
         {
-            var jo = Protocol.LevelComponent(-123456, 3);
+            var jo = Protocol.LevelComponent(-123456, 3, 0u);
             Assert.Equal(-123456, (int)jo["level"]["seed"]);
             Assert.Equal(3, (int)jo["level"]["num"]);
         }
@@ -53,7 +53,7 @@ namespace EightPlayers.Tests
         public void LevelMergesIntoPlayerComponents()
         {
             var components = Protocol.PlayerComponents("a", 1, "Hobo", 0f, 0f, 100f, 100f);
-            components.Merge(Protocol.LevelComponent(7, 1));
+            components.Merge(Protocol.LevelComponent(7, 1, 0u));
             Assert.Equal(7, (int)components["level"]["seed"]);
             Assert.Equal("a", (string)components["player"]["name"]);
         }

@@ -12,6 +12,7 @@
   <ItemGroup>
     <Compile Include="../EightPlayers/EcsNet/EcsWorld.cs" Link="EcsNet/EcsWorld.cs" />
     <Compile Include="../EightPlayers/EcsNet/Protocol.cs" Link="EcsNet/Protocol.cs" />
+    <Compile Include="../EightPlayers/DialogueMenuCore.cs" Link="DialogueMenuCore.cs" />
   </ItemGroup>
 
   <ItemGroup>
