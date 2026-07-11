@@ -30,6 +30,7 @@ namespace EightPlayers
     //   hp <uid> <delta>              change health (negative damages)
     //   kill <uid>                    kill an agent
     //   give <uid> <item> [count]     add inventory item
+    //   say <uid> <text>              pop the agent's in-game speech bubble
     //   drop <uid> <item>             drop inventory item
     //   tp <uid> <x> <y>              teleport an agent
     //   opendoor <uid>                open a door by UID
@@ -159,6 +160,16 @@ namespace EightPlayers
                 case "statuses":
                     Out($"agent {parts[1]} statuses: {string.Join(",", new List<string>(GameStateApi.Statuses(int.Parse(parts[1]))).ToArray())}");
                     break;
+                case "say":
+                {
+                    // say <uid> <text...> — pop the agent's in-game speech
+                    // bubble. Text is the rest of the line (spaces allowed).
+                    var sayParts = cmd.Split(new[] { ' ' }, 3);
+                    if (sayParts.Length < 3) { Out("usage: say <uid> <text>"); break; }
+                    GameStateApi.Say(int.Parse(sayParts[1]), sayParts[2]);
+                    Out($"agent {sayParts[1]} said \"{sayParts[2]}\"");
+                    break;
+                }
                 case "give":
                     GameStateApi.GiveItem(int.Parse(parts[1]), parts[2], parts.Length > 3 ? int.Parse(parts[3]) : 1);
                     Out($"gave {parts[2]} to agent {parts[1]}");
@@ -374,6 +385,70 @@ namespace EightPlayers
                     GameStateApi.PickUpGroundItem(int.Parse(parts[1]), ParseVec(parts[2], parts[3].Split(' ')[0]),
                         parts[3].Contains(" ") ? parts[3].Substring(parts[3].IndexOf(' ') + 1) : null);
                     Out("pickup attempted");
+                    break;
+                // ---- reshape the world (GM verbs) ---------------------------
+                case "explode":
+                {
+                    var ex = GameStateApi.Explode(ParseVec(parts[1], parts[2]), parts.Length > 3 ? parts[3] : "Normal");
+                    Out($"explosion at {parts[1]},{parts[2]}{(ex == null ? " (null)" : "")}");
+                    break;
+                }
+                case "spawnobject":
+                {
+                    // spawnobject <name> <x> <y>
+                    var obj = GameStateApi.SpawnObject(parts[1], ParseVec(parts[2], parts[3]));
+                    Out(obj != null ? $"spawned object uid={obj.UID} '{obj.objectName}'" : "spawn returned null");
+                    break;
+                }
+                case "destroywall":
+                    GameStateApi.DestroyWall(ParseVec(parts[1], parts[2]));
+                    Out($"wall destroyed at {parts[1]},{parts[2]}");
+                    break;
+                case "buildwall":
+                    GameStateApi.BuildWall(ParseVec(parts[1], parts[2]));
+                    Out($"wall built at {parts[1]},{parts[2]}");
+                    break;
+                case "gascloud":
+                {
+                    var gas = GameStateApi.GasCloud(ParseVec(parts[1], parts[2]), parts.Length > 3 ? parts[3] : "Poison");
+                    Out($"gas cloud at {parts[1]},{parts[2]}{(gas == null ? " (null)" : "")}");
+                    break;
+                }
+                case "recruit":
+                    GameStateApi.Recruit(int.Parse(parts[1]));
+                    Out($"agent {parts[1]} recruited into the party");
+                    break;
+
+                // ---- general reflection surface -----------------------------
+                case "inspect":
+                    Out(Reflect.Inspect(parts[1]));
+                    break;
+                case "get":
+                    Out(Reflect.Get(parts[1], parts[2]));
+                    break;
+                case "set":
+                {
+                    // set <target> <path> <value...> — value is the rest of the line
+                    var sp = cmd.Split(new[] { ' ' }, 4);
+                    if (sp.Length < 4) { Out("usage: set <target> <path> <value>"); break; }
+                    Out(Reflect.Set(sp[1], sp[2], sp[3]));
+                    break;
+                }
+                case "call":
+                {
+                    // call <target> <method> [jsonArgs...] — json is the rest of the line
+                    var cp = cmd.Split(new[] { ' ' }, 4);
+                    Out(Reflect.Call(cp[1], cp[2], cp.Length > 3 ? cp[3] : null));
+                    break;
+                }
+                case "find":
+                    Out(Reflect.Find(parts[1], parts.Length > 2 ? int.Parse(parts[2]) : 25));
+                    break;
+                case "members":
+                    Out(Reflect.Members(parts[1]));
+                    break;
+                case "types":
+                    Out(Reflect.Types(parts[1], parts.Length > 2 ? int.Parse(parts[2]) : 50));
                     break;
                 default: Out("unknown command"); break;
             }

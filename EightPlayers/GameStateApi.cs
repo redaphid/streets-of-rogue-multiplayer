@@ -80,6 +80,15 @@ namespace EightPlayers
             agent.statusEffects.SetupDeath(null, killedOnClient: false, noSFX: false);
         }
 
+        /// <summary>Trigger the agent's in-game speech bubble — the vanilla
+        /// Agent.Say choke point (SpawnTalkText). importantText makes the bubble
+        /// linger and, in netplay, relay to clients.</summary>
+        public static void Say(int uid, string message, bool important = true)
+        {
+            var agent = Require(uid);
+            agent.Say(message, important);
+        }
+
         public static void SetStatus(int uid, string effect, bool on)
         {
             var agent = Require(uid);
@@ -500,6 +509,72 @@ namespace EightPlayers
                 if (agent != null)
                     sb.Append($"\n  player: {DescribeAgent(agent)}");
             return sb.ToString();
+        }
+
+        // ---- reshape the world (GM verbs) -----------------------------------
+
+        /// <summary>Detonate an explosion at a world cell — hurts nearby agents
+        /// AND blows out walls (the game's own wall-destruction path). Source is
+        /// the local player so it reads as "environmental".</summary>
+        public static Explosion Explode(Vector2 pos, string explosionType = "Normal")
+        {
+            var gc = GC;
+            if (gc == null || gc.spawnerMain == null)
+                throw new InvalidOperationException("no game running");
+            return gc.spawnerMain.SpawnExplosion(gc.playerAgent, new Vector3(pos.x, pos.y, 0f), explosionType);
+        }
+
+        /// <summary>Spawn any object/structure prefab by name at a world cell
+        /// (e.g. ExplosiveBarrel, Mine, Turret, Toilet).</summary>
+        public static ObjectReal SpawnObject(string objectName, Vector2 pos)
+        {
+            var gc = GC;
+            if (gc == null || gc.spawnerMain == null)
+                throw new InvalidOperationException("no game running");
+            return gc.spawnerMain.spawnObjectReal(new Vector3(pos.x, pos.y, 0f), (PlayfieldObject)null, objectName);
+        }
+
+        /// <summary>Destroy the wall tile at a world cell (direct tile path — no
+        /// explosion). Rounds to the integer tile grid.</summary>
+        public static void DestroyWall(Vector2 pos)
+        {
+            var gc = GC;
+            if (gc == null || gc.tileInfo == null)
+                throw new InvalidOperationException("no game running");
+            gc.tileInfo.DestroyWallTileAtPosition(Mathf.Round(pos.x), Mathf.Round(pos.y),
+                checkPrisonWallDown: true, lastHitByAgent: null);
+        }
+
+        /// <summary>Build a normal wall tile at a world cell. Rounds to the grid.</summary>
+        public static void BuildWall(Vector2 pos)
+        {
+            var gc = GC;
+            if (gc == null || gc.tileInfo == null)
+                throw new InvalidOperationException("no game running");
+            gc.tileInfo.BuildWallTileAtPosition(Mathf.Round(pos.x), Mathf.Round(pos.y), wallMaterialType.Normal);
+        }
+
+        /// <summary>Spawn a free-standing gas cloud at a world cell (no source
+        /// object required — sources it from the local player). Contents e.g.
+        /// Flammable, Poison, Confusion, Tear, Knockout.</summary>
+        public static Gas GasCloud(Vector2 pos, string contents = "Poison")
+        {
+            var gc = GC;
+            if (gc == null || gc.spawnerMain == null)
+                throw new InvalidOperationException("no game running");
+            return gc.spawnerMain.SpawnGas(gc.playerAgent, new Vector3(pos.x, pos.y, 0f),
+                new List<string> { contents }, null, spawnOnClients: true);
+        }
+
+        /// <summary>Recruit an NPC into the local player's party through the
+        /// vanilla JoinParty choke point ("that Cop works for you now").</summary>
+        public static void Recruit(int uid)
+        {
+            var agent = Require(uid);
+            var gc = GC;
+            if (gc == null || gc.playerAgent == null)
+                throw new InvalidOperationException("no player");
+            agent.relationships.JoinParty(gc.playerAgent);
         }
 
         private static Agent Require(int uid)
