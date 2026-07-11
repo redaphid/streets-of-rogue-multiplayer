@@ -537,7 +537,7 @@ namespace EightPlayers
             if (gc == null)
                 return "no GameController";
             var sb = new StringBuilder();
-            sb.Append($"level={gc.levelType} agents={gc.agentList.Count} objects={gc.objectRealList.Count}");
+            sb.Append($"level={gc.levelType} agents={gc.agentList.Count} objects={gc.objectRealList.Count} loaded={(gc.loadCompleteReally ? "yes" : "NO")}");
             if (gc.loadLevel != null)
                 sb.Append($" seed={gc.loadLevel.randomSeedNum}/{gc.loadLevel.randomSeedLetter}");
             foreach (var agent in gc.playerAgentList)
