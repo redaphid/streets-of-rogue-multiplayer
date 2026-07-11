@@ -65,7 +65,7 @@ namespace EightPlayers
 
         /// <summary>Placeholder option shown while a flagged uid has no
         /// options authored yet.</summary>
-        internal const string Placeholder = "...";
+        internal const string Placeholder = "(one moment...)";
 
         // Per-uid installed tree + a cursor into it (the level currently shown).
         private sealed class MenuState
