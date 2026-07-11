@@ -109,7 +109,17 @@ namespace EightPlayers
                 // path) and skips BOTH, so spawned NPCs stood frozen forever.
                 // Callers that want an inert body (avatars, dynamic mirrors)
                 // already deactivate the brain explicitly after spawn.
-                return gc.spawnerMain.SpawnAgent(v, (PlayfieldObject)null, agentType);
+                var spawned = gc.spawnerMain.SpawnAgent(v, (PlayfieldObject)null, agentType);
+                // Force the brain ACTIVE immediately. StartBrain flips
+                // brain.active over a coroutine, so a spawn read back the same
+                // frame (or a body that landed in geometry) can show
+                // active=false and sit frozen. Registering it into the
+                // active-brain lists now makes spawned characters live on the
+                // very next AI tick — the expected default for anything the
+                // GM/characters spawn. (Inert-body callers still override with
+                // SetBrainActive(false) / Lua takeControl(false) afterward.)
+                ActivateBrain(spawned);
+                return spawned;
             }
             finally
             {
@@ -709,6 +719,23 @@ namespace EightPlayers
         /// nor processes goals — but PathfindingAI still honors
         /// SetFinalDestPosition, so a Lua behavior's moveToward keeps working:
         /// a behavior can take full ownership of movement.</summary>
+        /// <summary>Register an agent's brain into the active-brain lists and
+        /// flip its active flag on — idempotent. Used to make freshly spawned
+        /// NPCs live immediately (StartBrain otherwise activates over a
+        /// coroutine, leaving a same-frame read false).</summary>
+        public static void ActivateBrain(Agent agent)
+        {
+            var gc = GC;
+            if (agent == null || agent.brain == null || gc == null)
+                return;
+            agent.brain.active = true;
+            if (!gc.activeBrainAgentListIDs.Contains(agent.agentID))
+            {
+                gc.activeBrainAgentListIDs.Add(agent.agentID);
+                gc.activeBrainAgentList.Add(agent);
+            }
+        }
+
         public static bool SetBrainActive(int uid, bool active)
         {
             var agent = Require(uid);
