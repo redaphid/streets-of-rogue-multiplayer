@@ -60,6 +60,9 @@ make_win_clone() {
     rm -f "$c/BepInEx/plugins/"*.dll
     cp "$GAME/BepInEx/plugins/EightPlayers.dll"  "$c/BepInEx/plugins/"
     cp "$GAME/BepInEx/plugins/SorTestDriver.dll" "$c/BepInEx/plugins/"
+    # Plugin dependencies (e.g. MoonSharp for the Lua behavior engine) must
+    # ride along or BepInEx can't load the mod's behavior features.
+    cp "$GAME/BepInEx/plugins/MoonSharp.Interpreter.dll" "$c/BepInEx/plugins/" 2>/dev/null || true
 }
 
 # launch_win <name> <extra flatpak --env args...> -- <unity args...>
