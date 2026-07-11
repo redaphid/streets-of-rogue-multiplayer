@@ -489,6 +489,15 @@ namespace EightPlayers
                     Out($"gas cloud at {parts[1]},{parts[2]}{(gas == null ? " (vent spawned; venting momentarily)" : "")}");
                     break;
                 }
+                case "brainactive":
+                    // brainactive <uid|player[:n]> <on|off> — directly wake or
+                    // sleep an agent's brain (registers into the active list).
+                {
+                    bool on = parts.Length < 3 || parts[2] != "off";
+                    bool now = GameStateApi.SetBrainActive(GameStateApi.ResolveUid(parts[1]), on);
+                    Out($"agent {parts[1]} brain.active={now}");
+                }
+                    break;
                 case "recruit":
                     GameStateApi.Recruit(GameStateApi.ResolveUid(parts[1]));
                     Out($"agent {parts[1]} recruited into the party");

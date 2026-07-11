@@ -119,6 +119,13 @@ namespace EightPlayers
                 // GM/characters spawn. (Inert-body callers still override with
                 // SetBrainActive(false) / Lua takeControl(false) afterward.)
                 ActivateBrain(spawned);
+                // StartBrain flips brain.active over a coroutine that runs on
+                // later frames and can overwrite our activation, so re-assert
+                // for a few frames after spawn. (Idempotent; a caller that
+                // wants an inert body deactivates after and the reassert
+                // coroutine no-ops once the agent is gone.)
+                if (spawned != null)
+                    EightPlayersPlugin.Instance.StartCoroutine(ReassertActive(spawned));
                 return spawned;
             }
             finally
@@ -747,6 +754,15 @@ namespace EightPlayers
             }
         }
 
+        private static System.Collections.IEnumerator ReassertActive(Agent agent)
+        {
+            for (int i = 0; i < 30 && agent != null && !agent.dead; i++)
+            {
+                ActivateBrain(agent);
+                yield return null;
+            }
+        }
+
         public static bool SetBrainActive(int uid, bool active)
         {
             var agent = Require(uid);
@@ -859,10 +875,13 @@ namespace EightPlayers
             if (agent.brain.Goals.Count == 0)
                 agent.brain.RecycleStart(); // never-started brain: seed Goals[0] so SwitchGoal has something to replace
             agent.brainUpdate.SwitchGoal(goal);
-            string warn = agent.brain.active
-                ? ""
-                : " — WARNING brain.active=false: the goal sits idle until the brain is reactivated (Lua takeControl(false), or SetBrainActive)";
-            return $"agent {uid} goal={goal.goalName}: {detail}{warn}";
+            // A goal is worthless if the brain isn't ticking. Force-activate —
+            // spawned NPCs can read brain.active=false (the StartBrain coroutine
+            // hasn't flipped it, or overwrote our spawn-time activation), which
+            // left Battle/Follow goals sitting idle. This runs at command time,
+            // after spawn has settled, so it holds.
+            SetBrainActive(uid, true);
+            return $"agent {uid} goal={goal.goalName}: {detail} (brain active)";
         }
 
         private static readonly string[] SupportedGoals =
