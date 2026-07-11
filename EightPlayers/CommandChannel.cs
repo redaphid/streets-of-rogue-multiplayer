@@ -41,8 +41,12 @@ namespace EightPlayers
     //   setgoal <uid> <goal> [target] inject a REAL brain goal (Follow/Guard/
     //                                 Battle/Flee/Investigate/Wander/WanderFar;
     //                                 target = uid|player alias or x,y)
-    //   setmenu <uid> <b64json>       custom NPC talk menu; b64(["opt",...]) ≤6×40;
-    //                                 selections stream as menu_choice events
+    //   setmenu <uid> <b64json>       custom NPC talk menu or prefetched
+    //                                 conversation TREE; b64 of ["opt",...] or
+    //                                 [{"text","reply"?,"next"?[...]},...]
+    //                                 (recursive; ≤6/level ×40 chars, replies
+    //                                 ≤90, depth ≤5, ≤40 nodes); presses
+    //                                 stream as menu_choice events
     //   clearmenu <uid|all>           restore the vanilla talk menu
     //   label <uid|player[:n]> <TEXT...>  quest-marker-style world-space text
     //                                 pinned over an agent OR object (uid may
@@ -476,9 +480,13 @@ namespace EightPlayers
                     break;
                 case "setmenu":
                     // setmenu <uid> <b64json> — custom interaction menu on an
-                    // NPC (DialogueMenu.cs); json = ["opt1","opt2",...] (≤6
-                    // options, ≤40 chars each; [] flags the uid with "...").
-                    // Selections stream as menu_choice events on GET /events.
+                    // NPC (DialogueMenu.cs); json = array of options, each a
+                    // plain string OR a prefetched tree node {"text","reply"?,
+                    // "next"?:[...]} recursing ≤5 deep / ≤40 nodes (≤6 options
+                    // ×40 chars per level, replies ≤90; [] flags the uid with
+                    // "..."). Pressing an option pops its canned reply and
+                    // swaps to its next level instantly; every press streams
+                    // as a menu_choice event on GET /events.
                     Out(DialogueMenuCore.SetMenu(GameStateApi.ResolveUid(parts[1]), parts[2]));
                     break;
                 case "clearmenu":
