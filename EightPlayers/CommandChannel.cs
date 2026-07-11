@@ -72,21 +72,49 @@ namespace EightPlayers
                 return;
             }
             foreach (var line in lines)
+                RunLine(line);
+        }
+
+        /// <summary>One command line through the EXACT same path the file
+        /// channel uses (echo, execute, error formatting); output goes to the
+        /// current sink (ep_out.txt, or a capture buffer for the HTTP channel).
+        /// MUST be called on the Unity main thread.</summary>
+        private static void RunLine(string line)
+        {
+            var cmd = line.Trim();
+            if (cmd.Length == 0 || cmd.StartsWith("#"))
+                return;
+            try
             {
-                var cmd = line.Trim();
-                if (cmd.Length == 0 || cmd.StartsWith("#"))
-                    continue;
-                try
-                {
-                    Out($"> {cmd}");
-                    Execute(cmd);
-                }
-                catch (Exception e)
-                {
-                    Out($"error: {e.GetType().Name}: {e.Message}");
-                }
+                Out($"> {cmd}");
+                Execute(cmd);
+            }
+            catch (Exception e)
+            {
+                Out($"error: {e.GetType().Name}: {e.Message}");
             }
         }
+
+        /// <summary>Execute command line(s) and return the reply text that the
+        /// file channel would have appended to ep_out.txt (including the
+        /// "&gt; cmd" echo line). Used by HttpChannel; main thread only.</summary>
+        internal static string ExecuteCaptured(string text)
+        {
+            var sb = new StringBuilder();
+            _capture = sb;
+            try
+            {
+                foreach (var line in text.Split('\n'))
+                    RunLine(line);
+            }
+            finally
+            {
+                _capture = null;
+            }
+            return sb.ToString().TrimEnd('\n');
+        }
+
+        private static StringBuilder _capture;
 
         private static void Execute(string cmd)
         {
@@ -673,6 +701,13 @@ namespace EightPlayers
         private static void Out(string line)
         {
             EightPlayersPlugin.Log.LogInfo("EPCMD " + line);
+            // HTTP channel capture: replies for HTTP-submitted verbs go back on
+            // the HTTP response, not into the shared ep_out.txt mailbox.
+            if (_capture != null)
+            {
+                _capture.Append(line).Append('\n');
+                return;
+            }
             try { File.AppendAllText(OutPath, line + "\n"); } catch { }
         }
     }

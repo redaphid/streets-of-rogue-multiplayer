@@ -78,6 +78,7 @@ namespace EightPlayers
             Tracing.NetTrace.Install(harmony);
             JoystickBinding.Init();
             gameObject.AddComponent<EcsNet.EcsNetManager>();
+            HttpChannel.Start();
             Log.LogInfo($"EightPlayers loaded. Player cap: {MaxPlayers.Value}, LAN menu: {ShowLanMenu.Value}");
         }
 
@@ -87,6 +88,7 @@ namespace EightPlayers
             ZeroTwoMapping.Tick();
             ControllerDebug.Tick();
             CommandChannel.Tick();
+            HttpChannel.Tick();
             if (!_behaviorEngineDown)
             {
                 try
@@ -116,6 +118,7 @@ namespace EightPlayers
 
         private void OnApplicationQuit()
         {
+            HttpChannel.Shutdown();
             Tracing.Trace.Shutdown();
         }
     }
