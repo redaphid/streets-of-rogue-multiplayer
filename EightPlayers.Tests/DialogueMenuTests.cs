@@ -269,15 +269,79 @@ public class DialogueMenuTests
         DialogueMenuCore.ClearAll();
     }
 
+    // ---- consumed branches: no-repeat after a leaf (issue #27) -------------
+
     [Fact]
-    public void LeafChoiceKeepsCursorSoReinteractShowsSameLevel()
+    public void LeafConsumesItsTopLevelBranchAndResetsCursorToRoot()
     {
         DialogueMenuCore.ClearAll();
         DialogueMenuCore.SetMenu(5, B64(TreeJson));
+        DialogueMenuCore.Choose(5, "Who are you?"); // descend into the branch
+        DialogueMenuCore.Choose(5, "Never mind");   // leaf inside that branch
+        // Re-interact: the "Who are you?" branch is gone, only "Goodbye" remains.
+        Assert.Equal(
+            new[] { DialogueMenuCore.Marker + "Goodbye" },
+            DialogueMenuCore.ButtonIdsFor(5));
+        DialogueMenuCore.ClearAll();
+    }
+
+    [Fact]
+    public void TopLevelLeafPressConsumesThatOption()
+    {
+        DialogueMenuCore.ClearAll();
+        DialogueMenuCore.SetMenu(5, B64(TreeJson));
+        DialogueMenuCore.Choose(5, "Goodbye"); // top-level plain leaf
+        Assert.Equal(
+            new[] { DialogueMenuCore.Marker + "Who are you?" },
+            DialogueMenuCore.ButtonIdsFor(5));
+        DialogueMenuCore.ClearAll();
+    }
+
+    [Fact]
+    public void AllConsumedFallsBackToPlaceholder()
+    {
+        DialogueMenuCore.ClearAll();
+        DialogueMenuCore.SetMenu(5, B64("[\"Trade\",\"Gossip\"]"));
+        DialogueMenuCore.Choose(5, "Trade");  // leaf, consumes Trade
+        Assert.Equal(
+            new[] { DialogueMenuCore.Marker + "Gossip" },
+            DialogueMenuCore.ButtonIdsFor(5));
+        var pick = DialogueMenuCore.Choose(5, "Gossip"); // leaf, consumes Gossip
+        Assert.False(pick.HasNext);
+        // Every branch exhausted → single "..." placeholder (still fires a
+        // menu_choice so the character authors a fresh, forward-moving tree).
+        Assert.Equal(
+            new[] { DialogueMenuCore.Marker + DialogueMenuCore.Placeholder },
+            DialogueMenuCore.ButtonIdsFor(5));
+        DialogueMenuCore.ClearAll();
+    }
+
+    [Fact]
+    public void FreshSetMenuResetsConsumedState()
+    {
+        DialogueMenuCore.ClearAll();
+        DialogueMenuCore.SetMenu(5, B64("[\"Trade\",\"Gossip\"]"));
+        DialogueMenuCore.Choose(5, "Trade");  // consume
+        DialogueMenuCore.Choose(5, "Gossip"); // consume → placeholder
+        // A new tree wipes consumed state and shows its own options.
+        DialogueMenuCore.SetMenu(5, B64("[\"Trade\",\"Gossip\"]"));
+        Assert.Equal(
+            new[] { DialogueMenuCore.Marker + "Trade", DialogueMenuCore.Marker + "Gossip" },
+            DialogueMenuCore.ButtonIdsFor(5));
+        DialogueMenuCore.ClearAll();
+    }
+
+    [Fact]
+    public void ConsumedFilterAppliesOnlyAtRootNotMidDescent()
+    {
+        DialogueMenuCore.ClearAll();
+        DialogueMenuCore.SetMenu(5, B64(TreeJson));
+        // Descend one level; the swapped-in branch level is shown whole,
+        // unaffected by consumed tracking (which only prunes the root).
         DialogueMenuCore.Choose(5, "Who are you?");
-        var before = DialogueMenuCore.ButtonIdsFor(5);
-        DialogueMenuCore.Choose(5, "Never mind"); // leaf
-        Assert.Equal(before, DialogueMenuCore.ButtonIdsFor(5));
+        Assert.Equal(
+            new[] { DialogueMenuCore.Marker + "A traveler from where?", DialogueMenuCore.Marker + "Never mind" },
+            DialogueMenuCore.ButtonIdsFor(5));
         DialogueMenuCore.ClearAll();
     }
 
