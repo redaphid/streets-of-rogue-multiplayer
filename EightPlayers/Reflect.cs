@@ -662,7 +662,10 @@ namespace EightPlayers
 
         private static object CoerceString(string raw, Type t)
         {
-            if (t == typeof(string)) return raw;
+            // A JSON-quoted string ("MAULER") is unwrapped to its literal so
+            // set/set_field doesn't store the surrounding quotes (rogue-gm#16);
+            // a bare string passes through unchanged.
+            if (t == typeof(string)) return ReflectCoerce.CoerceStringValue(raw);
             if (t == typeof(object)) // best-effort infer
             {
                 if (bool.TryParse(raw, out var b)) return b;

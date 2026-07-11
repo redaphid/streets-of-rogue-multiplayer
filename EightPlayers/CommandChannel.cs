@@ -200,9 +200,18 @@ namespace EightPlayers
                             Out(line);
                     break;
                 case "agents":
+                {
+                    // agents [people] — "people" drops ObjectAgent backers
+                    // (hp 100/0, objectAgent:true) and dead agents that clutter
+                    // the roster (rogue-gm#15). Default output shape unchanged.
+                    bool peopleOnly = parts.Length > 1 && parts[1].Trim().Equals("people", StringComparison.OrdinalIgnoreCase);
                     foreach (var agent in GameStateApi.Agents())
+                    {
+                        if (peopleOnly && (agent.objectAgent || agent.dead)) continue;
                         Out("  " + GameStateApi.DescribeAgent(agent));
+                    }
                     break;
+                }
                 case "spawnagent":
                 {
                     var spawned = GameStateApi.SpawnAgent(parts[1], ParseVec(parts[2], parts[3]));
@@ -283,7 +292,11 @@ namespace EightPlayers
                     }
                     break;
                 }
+                case "destroyobject":
                 case "destroyobj":
+                    // destroyobject <uid> — cleanly remove a world ObjectReal by
+                    // uid (RemoveMe: no wreckage/SFX/fire), the object-side
+                    // counterpart to kill/explode (rogue-gm#30).
                     GameStateApi.DestroyObject(int.Parse(parts[1]));
                     Out($"object {parts[1]} destroyed");
                     break;
@@ -487,10 +500,13 @@ namespace EightPlayers
                     break;
                 case "clearmap":
                     // clearmap <x> <y> <w> <h> — raze a rectangle to bare floor
-                    // (top-left world cell x,y; w east +x, h south -y).
+                    // (top-left world cell x,y; w east +x, h south -y). Parse as
+                    // floats and floor to integer cells so the float world
+                    // positions `observe`/`nearby` hand back are accepted, matching
+                    // ignite/tp/buildwall's float coord parsing (rogue-gm#31).
                     if (parts.Length < 5) { Out("usage: clearmap <x> <y> <w> <h>"); break; }
-                    Out(MapBuilder.ClearRegion(int.Parse(parts[1]), int.Parse(parts[2]),
-                        int.Parse(parts[3]), int.Parse(parts[4])));
+                    Out(MapBuilder.ClearRegion(FloorCell(parts[1]), FloorCell(parts[2]),
+                        FloorCell(parts[3]), FloorCell(parts[4])));
                     break;
                 case "gascloud":
                 {
@@ -600,9 +616,16 @@ namespace EightPlayers
                     Out(GameStateApi.InventoryJson(GameStateApi.ResolveUid(parts[1])));
                     break;
                 case "nearby":
-                    // nearby <x> <y> <radius> — agents + objects within radius
-                    Out(GameStateApi.NearbyJson(ParseVec(parts[1], parts[2]), float.Parse(parts[3])));
+                {
+                    // nearby <x> <y> <radius> [people] — agents + objects within
+                    // radius. A trailing "people" drops ObjectAgent backers
+                    // (hp 100/0) and dead agents from the agents[] list; objects
+                    // are unaffected (rogue-gm#15).
+                    var np = parts[3].Split(new[] { ' ' }, 2);
+                    bool peopleOnly = np.Length > 1 && np[1].Trim().Equals("people", StringComparison.OrdinalIgnoreCase);
+                    Out(GameStateApi.NearbyJson(ParseVec(parts[1], parts[2]), float.Parse(np[0]), peopleOnly));
                     break;
+                }
                 case "walknpc":
                     // walknpc <uid> <x> <y> — EXPERIMENTAL: route an NPC via its
                     // own pathfinding (brain goals may re-route it)
@@ -752,6 +775,10 @@ namespace EightPlayers
 
         private static Vector2 ParseVec(string x, string y) =>
             new Vector2(float.Parse(x), float.Parse(y));
+
+        // Parse a coord token as a float and floor to an integer cell — lets the
+        // integer tile ops accept the float world positions observe hands back.
+        private static int FloorCell(string s) => Mathf.FloorToInt(float.Parse(s));
 
         private static Player P0 => ReInput.players.GetPlayer(0);
 

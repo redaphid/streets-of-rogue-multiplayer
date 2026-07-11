@@ -32,7 +32,7 @@ namespace EightPlayers
         internal static string Build(string text)
         {
             var map = MapBuilderCore.Parse(text);
-            int walls = 0, floors = 0, objects = 0, failed = 0;
+            int walls = 0, floors = 0, objects = 0, failed = 0, objectsCleared = 0;
 
             foreach (var cell in MapBuilderCore.Cells(map))
             {
@@ -43,17 +43,21 @@ namespace EightPlayers
                     switch (cell.Kind)
                     {
                         case MapBuilderCore.CellKind.Wall:
-                            // floor first so razing this wall later leaves ground
+                            // clear any pre-existing solid object out of the cell,
+                            // then floor first so razing this wall later leaves ground
+                            objectsCleared += GameStateApi.ClearObjectsAt(pos);
                             GameStateApi.BuildFloor(pos);
                             GameStateApi.BuildWall(pos);
                             walls++;
                             break;
                         case MapBuilderCore.CellKind.Floor:
+                            objectsCleared += GameStateApi.ClearObjectsAt(pos);
                             GameStateApi.DestroyWall(pos);
                             GameStateApi.BuildFloor(pos);
                             floors++;
                             break;
                         case MapBuilderCore.CellKind.Object:
+                            objectsCleared += GameStateApi.ClearObjectsAt(pos);
                             GameStateApi.DestroyWall(pos);
                             GameStateApi.BuildFloor(pos);
                             var obj = GameStateApi.SpawnObject(cell.ObjectName, pos);
@@ -74,6 +78,7 @@ namespace EightPlayers
               .Append(",\"built\":{\"walls\":").Append(walls)
               .Append(",\"floors\":").Append(floors)
               .Append(",\"objects\":").Append(objects)
+              .Append(",\"objectsCleared\":").Append(objectsCleared)
               .Append(",\"failed\":").Append(failed)
               .Append("},\"bounds\":{\"x\":").Append(map.OriginX)
               .Append(",\"y\":").Append(map.OriginY)
@@ -91,16 +96,19 @@ namespace EightPlayers
                 throw new ArgumentException("clearmap needs positive width and height");
             if (w > MapBuilderCore.MaxWidth || h > MapBuilderCore.MaxHeight || w * h > MapBuilderCore.MaxCells)
                 throw new ArgumentException($"region too big ({w}x{h}) — max {MapBuilderCore.MaxWidth}x{MapBuilderCore.MaxHeight}");
-            int cleared = 0;
+            int cleared = 0, objectsCleared = 0;
             for (int row = 0; row < h; row++)
                 for (int col = 0; col < w; col++)
                 {
                     var pos = new Vector2(x + col, y - row);
+                    // also strip pre-existing solid objects (not doors) so the
+                    // footprint really is bare floor (rogue-gm#30)
+                    objectsCleared += GameStateApi.ClearObjectsAt(pos);
                     GameStateApi.DestroyWall(pos);
                     GameStateApi.BuildFloor(pos);
                     cleared++;
                 }
-            return $"cleared {cleared} cell(s) to floor: {w}x{h} from {x},{y}";
+            return $"cleared {cleared} cell(s) to floor ({objectsCleared} object(s) removed): {w}x{h} from {x},{y}";
         }
     }
 }
