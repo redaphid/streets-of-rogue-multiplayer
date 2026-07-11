@@ -55,6 +55,15 @@ namespace EightPlayers
     //                                 ALL CAPS), ≤48 chars
     //   clearlabel <uid|all>          remove label(s)
     //   labels                        list active labels
+    //   quest add <id> <uid|x,y> <reach|kill|interact|protect> <TEXT...>
+    //                                 register a STORY QUEST (rogue-gm#22/#7):
+    //                                 ALL-CAPS marker over the target + a native
+    //                                 mission-sheet row; completion (target
+    //                                 dead / a player reaching it) pushes a
+    //                                 quest_complete event on GET /events
+    //   quest done <id>               force-complete a story quest
+    //   quest clear <id|all>          drop story quest(s)
+    //   quests                        list active story quests (JSON)
     //
     // Code mode (BehaviorEngine.cs — Lua scripts run in-game at frame rate):
     //   behavior <uid|player[:n]> <lua...>     install/replace (script = rest of line)
@@ -537,6 +546,54 @@ namespace EightPlayers
                     break;
                 case "labels":
                     Out(Labels.Summary());
+                    break;
+                case "quest":
+                {
+                    // quest add <id> <uid|x,y> <reach|kill|interact|protect> <TEXT...>
+                    // quest done <id>   |   quest clear <id|all>
+                    // Story quests (rogue-gm#22/#7): native marker + mission-sheet
+                    // row + a quest_complete event on GET /events when finished.
+                    var qp = cmd.Split(new[] { ' ' }, 6);
+                    if (qp.Length < 2) { Out("usage: quest add <id> <uid|x,y> <TYPE> <TEXT> | quest done <id> | quest clear <id|all>"); break; }
+                    switch (qp[1].ToLowerInvariant())
+                    {
+                        case "add":
+                        {
+                            if (qp.Length < 6) { Out("usage: quest add <id> <uid|x,y> <reach|kill|interact|protect> <TEXT...>"); break; }
+                            int qUid = 0;
+                            Vector2? qPos = null;
+                            var tgt = qp[3].Trim();
+                            if (tgt.Contains(","))
+                            {
+                                var xy = tgt.Split(',');
+                                qPos = new Vector2(float.Parse(xy[0]), float.Parse(xy[1]));
+                            }
+                            else
+                            {
+                                qUid = GameStateApi.ResolveUid(tgt);
+                            }
+                            Out(StoryQuests.Add(qp[2], qUid, qPos, qp[4], qp[5]));
+                            break;
+                        }
+                        case "done":
+                            if (qp.Length < 3) { Out("usage: quest done <id>"); break; }
+                            Out(StoryQuests.Done(qp[2]));
+                            break;
+                        case "clear":
+                            if (qp.Length < 3) { Out("usage: quest clear <id|all>"); break; }
+                            Out(qp[2] == "all"
+                                ? $"cleared {StoryQuests.ClearAll()} story quest(s)"
+                                : StoryQuests.Clear(qp[2]));
+                            break;
+                        default:
+                            Out("usage: quest add <id> <uid|x,y> <TYPE> <TEXT> | quest done <id> | quest clear <id|all>");
+                            break;
+                    }
+                    break;
+                }
+                case "quests":
+                    // quests — list active story quests as JSON
+                    Out(StoryQuests.ListJson());
                     break;
                 case "inventory":
                     // inventory <uid> — one-shot JSON inventory listing
