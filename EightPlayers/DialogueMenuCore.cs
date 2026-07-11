@@ -42,9 +42,14 @@ namespace EightPlayers
     // whole conversation tree installed in one call (issue #18): each press
     // pops the canned reply instantly and descends the cursor into that
     // option's `next` menu, no external round-trip needed until a leaf.
-    // While a flagged uid has NO options yet (empty array), the menu shows a
-    // single "..." option — pressing it still emits a menu_choice event, so an
-    // external character session can lazily author its first real menu.
+    // Reaching a leaf CONSUMES that top-level branch (issue #27): the cursor
+    // resets to the root and the exhausted branch is dropped from future
+    // interactions, so a conversation the player already walked never re-shows.
+    // While a flagged uid has NO options yet (empty array) — or once EVERY
+    // top-level branch is consumed — the menu shows a single "..." option;
+    // pressing it still emits a menu_choice event, so an external character
+    // session can lazily author its first (or next) real menu. A fresh setmenu
+    // REPLACES the tree and RESETS consumed state.
     internal static class DialogueMenuCore
     {
         /// <summary>Marker prefix carried INSIDE the button id, so the option
@@ -68,6 +73,10 @@ namespace EightPlayers
             internal List<MenuOption> Root;
             internal List<MenuOption> Cursor;               // current level
             internal readonly List<string> Path = new List<string>(); // choices taken to reach Cursor
+            // Top-level option texts the player has already walked to a leaf
+            // (issue #27): once consumed, a branch is dropped from the root menu
+            // on re-interact so an exhausted conversation never re-shows itself.
+            internal readonly HashSet<string> Consumed = new HashSet<string>();
         }
 
         // Main-thread only (verbs and Harmony hooks both run on Unity's main
@@ -214,11 +223,18 @@ namespace EightPlayers
             if (!_menus.TryGetValue(uid, out var state))
                 return null;
             var ids = new List<string>();
-            if (state.Cursor.Count == 0)
-                ids.Add(Marker + Placeholder);
-            else
-                foreach (var option in state.Cursor)
+            // At the ROOT level (a fresh interaction) exclude branches the
+            // player already exhausted (issue #27). Deeper levels — reached by
+            // prefetch descent — are shown whole. When every top-level branch
+            // is consumed (or the tree has no options yet), fall back to the
+            // single "..." placeholder, which still fires a menu_choice so the
+            // character can author a fresh, forward-moving tree.
+            bool atRoot = ReferenceEquals(state.Cursor, state.Root);
+            foreach (var option in state.Cursor)
+                if (!atRoot || !state.Consumed.Contains(option.Text))
                     ids.Add(Marker + option.Text);
+            if (atRoot && ids.Count == 0)
+                ids.Add(Marker + Placeholder);
             return ids;
         }
 
@@ -259,8 +275,19 @@ namespace EightPlayers
                 state.Cursor = chosen.Next;
                 state.Path.Add(text);
             }
-            // leaf: cursor stays put (re-interacting shows the same level
-            // until the external session re-authors via setmenu)
+            else if (state != null)
+            {
+                // leaf (issue #27): the player exhausted this branch. Mark its
+                // top-level root consumed and reset the cursor back to the root
+                // so the NEXT interaction shows the remaining, unconsumed
+                // top-level options — never the conversation just finished.
+                // Path[0] is the branch root; if empty, the leaf press WAS a
+                // top-level option, so its own text is the root.
+                string branchRoot = state.Path.Count > 0 ? state.Path[0] : text;
+                state.Consumed.Add(branchRoot);
+                state.Cursor = state.Root;
+                state.Path.Clear();
+            }
             return result;
         }
     }
