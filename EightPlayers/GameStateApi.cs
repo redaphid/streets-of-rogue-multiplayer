@@ -763,6 +763,54 @@ namespace EightPlayers
             }
         }
 
+        // ---- hard position pin (staged set-pieces) ---------------------------
+        private static readonly System.Collections.Generic.Dictionary<int, Vector2> Pins
+            = new System.Collections.Generic.Dictionary<int, Vector2>();
+
+        /// <summary>Freeze an agent at a world point: a per-frame lock (PinTick)
+        /// re-sets its position, winning over native AI AND tool-driven moves.
+        /// Also sleeps the brain so it stops fighting. Unpin to release.</summary>
+        public static void Pin(int uid, Vector2 pos)
+        {
+            var agent = Require(uid);
+            Pins[uid] = pos;
+            if (agent.tr != null) agent.tr.position = new Vector3(pos.x, pos.y, agent.tr.position.z);
+            try { SetBrainActive(uid, false); } catch { /* brainless — the lock alone holds it */ }
+        }
+
+        public static void Unpin(int uid)
+        {
+            Pins.Remove(uid);
+            try { SetBrainActive(uid, true); } catch { }
+        }
+
+        public static void UnpinAll()
+        {
+            foreach (var uid in new System.Collections.Generic.List<int>(Pins.Keys))
+                try { SetBrainActive(uid, true); } catch { }
+            Pins.Clear();
+        }
+
+        /// <summary>Called every frame from Plugin.Update — hold pinned agents
+        /// at their points and drop any that died/despawned.</summary>
+        public static void PinTick()
+        {
+            if (Pins.Count == 0) return;
+            System.Collections.Generic.List<int> drop = null;
+            foreach (var kv in Pins)
+            {
+                var a = FindAgent(kv.Key);
+                if (a == null || a.dead || a.tr == null)
+                {
+                    (drop ?? (drop = new System.Collections.Generic.List<int>())).Add(kv.Key);
+                    continue;
+                }
+                a.tr.position = new Vector3(kv.Value.x, kv.Value.y, a.tr.position.z);
+                if (a.rb != null) a.rb.velocity = Vector2.zero;
+            }
+            if (drop != null) foreach (var uid in drop) Pins.Remove(uid);
+        }
+
         public static bool SetBrainActive(int uid, bool active)
         {
             var agent = Require(uid);

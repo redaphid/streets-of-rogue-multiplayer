@@ -560,6 +560,22 @@ namespace EightPlayers
                     Out(GameStateApi.AiMarker(GameStateApi.ResolveUid(parts[1]), markerOn));
                     break;
                 }
+                case "pin":
+                {
+                    // pin <uid|player> <x> <y> — hard-freeze an agent at a point:
+                    // a per-frame position lock that overrides BOTH native AI
+                    // wander and tool/Sonnet-driven movement, for staged beats
+                    // (shakedowns, standoffs). unpin to release.
+                    int puid = GameStateApi.ResolveUid(parts[1]);
+                    var pp = ParseVec(parts[2], parts[3]);
+                    GameStateApi.Pin(puid, pp);
+                    Out($"agent {puid} pinned at {pp.x},{pp.y} (unpin to release)");
+                    break;
+                }
+                case "unpin":
+                    if (parts[1] == "all") { GameStateApi.UnpinAll(); Out("all agents unpinned"); }
+                    else { GameStateApi.Unpin(GameStateApi.ResolveUid(parts[1])); Out($"agent {parts[1]} unpinned"); }
+                    break;
                 case "setgoal":
                 {
                     // setgoal <uid|player> <goalName> [<targetUid|player> | <x,y>]
@@ -574,6 +590,11 @@ namespace EightPlayers
                         {
                             var xy = t.Split(',');
                             goalPos = new Vector2(float.Parse(xy[0]), float.Parse(xy[1]));
+                        }
+                        else if (parts.Length > 4 && float.TryParse(t, out var gx) && float.TryParse(parts[4], out var gy))
+                        {
+                            // space-separated coords: setgoal <uid> Guard <x> <y>
+                            goalPos = new Vector2(gx, gy);
                         }
                         else
                         {

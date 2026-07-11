@@ -105,6 +105,7 @@ namespace EightPlayers
                 }
             }
             Labels.Tick();
+            GameStateApi.PinTick();
             LoadWatchdog.Tick();
             Tracing.Trace.Tick();
         }
