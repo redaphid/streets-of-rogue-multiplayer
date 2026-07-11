@@ -773,6 +773,10 @@ namespace EightPlayers
         public static void Pin(int uid, Vector2 pos)
         {
             var agent = Require(uid);
+            // NEVER pin a player — the per-frame position-lock would freeze the
+            // human's own controls. Pin is a set-piece freeze for NPC bodies.
+            if (agent.isPlayer > 0)
+                throw new ArgumentException($"agent {uid} is a PLAYER — refusing to pin (it would freeze their controls); pin is for NPC set-pieces only");
             Pins[uid] = pos;
             if (agent.tr != null) agent.tr.position = new Vector3(pos.x, pos.y, agent.tr.position.z);
             try { SetBrainActive(uid, false); } catch { /* brainless — the lock alone holds it */ }
