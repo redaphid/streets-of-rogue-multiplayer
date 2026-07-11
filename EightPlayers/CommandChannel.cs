@@ -34,6 +34,14 @@ namespace EightPlayers
     //   drop <uid> <item>             drop inventory item
     //   tp <uid> <x> <y>              teleport an agent
     //   opendoor <uid>                open a door by UID
+    //   inventory <uid>               one-shot JSON inventory listing
+    //   nearby <x> <y> <radius>       agents + objects within radius (JSON)
+    //   walknpc <uid> <x> <y>         EXPERIMENTAL: NPC walks via own pathfinding
+    //
+    // Reflection (Reflect.cs; targets: gc | agent:<uid> | player[:<n>] |
+    // handle:<id> | static:<Type>):
+    //   inspect/get/set/call/find/types, members <Type> [kind] [nameFilter],
+    //   getmany <target> <p1>|<p2>|..., keys <target> <path>
     internal static class CommandChannel
     {
         private static float next;
@@ -418,6 +426,20 @@ namespace EightPlayers
                     GameStateApi.Recruit(int.Parse(parts[1]));
                     Out($"agent {parts[1]} recruited into the party");
                     break;
+                case "inventory":
+                    // inventory <uid> — one-shot JSON inventory listing
+                    Out(GameStateApi.InventoryJson(int.Parse(parts[1])));
+                    break;
+                case "nearby":
+                    // nearby <x> <y> <radius> — agents + objects within radius
+                    Out(GameStateApi.NearbyJson(ParseVec(parts[1], parts[2]), float.Parse(parts[3])));
+                    break;
+                case "walknpc":
+                    // walknpc <uid> <x> <y> — EXPERIMENTAL: route an NPC via its
+                    // own pathfinding (brain goals may re-route it)
+                    GameStateApi.WalkNpc(int.Parse(parts[1]), ParseVec(parts[2], parts[3]));
+                    Out($"agent {parts[1]} walking to {parts[2]},{parts[3]} (experimental — brain may override)");
+                    break;
 
                 // ---- general reflection surface -----------------------------
                 case "inspect":
@@ -425,6 +447,19 @@ namespace EightPlayers
                     break;
                 case "get":
                     Out(Reflect.Get(parts[1], parts[2]));
+                    break;
+                case "getmany":
+                {
+                    // getmany <target> <path1>|<path2>|... — batch read, one
+                    // round trip (paths = rest of line, pipe-separated)
+                    var gm = cmd.Split(new[] { ' ' }, 3);
+                    if (gm.Length < 3) { Out("usage: getmany <target> <path1>|<path2>|..."); break; }
+                    Out(Reflect.GetMany(gm[1], gm[2]));
+                    break;
+                }
+                case "keys":
+                    // keys <target> <path> — string keys of a dictionary member
+                    Out(Reflect.Keys(parts[1], parts.Length > 2 ? parts[2] : ""));
                     break;
                 case "set":
                 {
@@ -445,7 +480,10 @@ namespace EightPlayers
                     Out(Reflect.Find(parts[1], parts.Length > 2 ? int.Parse(parts[2]) : 25));
                     break;
                 case "members":
-                    Out(Reflect.Members(parts[1]));
+                    // members <TypeName> [fields|props|methods|all] [nameFilter]
+                    Out(Reflect.Members(parts[1],
+                        parts.Length > 2 ? parts[2] : "all",
+                        parts.Length > 3 ? parts[3] : null));
                     break;
                 case "types":
                     Out(Reflect.Types(parts[1], parts.Length > 2 ? int.Parse(parts[2]) : 50));

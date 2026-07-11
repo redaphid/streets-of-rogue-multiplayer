@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace EightPlayers
@@ -25,6 +27,20 @@ namespace EightPlayers
                 return null;
             foreach (var agent in gc.agentList)
                 if (agent != null && agent.UID == uid)
+                    return agent;
+            return null;
+        }
+
+        /// <summary>The live player-N agent (1-based). Uids churn during level
+        /// load, so target aliases (player:<n>) resolve through this each call.</summary>
+        public static Agent FindPlayer(int n)
+        {
+            var gc = GC;
+            if (gc == null)
+                return null;
+            int i = 0;
+            foreach (var agent in gc.playerAgentList)
+                if (agent != null && ++i == n)
                     return agent;
             return null;
         }
@@ -554,15 +570,22 @@ namespace EightPlayers
             gc.tileInfo.BuildWallTileAtPosition(Mathf.Round(pos.x), Mathf.Round(pos.y), wallMaterialType.Normal);
         }
 
-        /// <summary>Spawn a free-standing gas cloud at a world cell (no source
-        /// object required — sources it from the local player). Contents e.g.
-        /// Flammable, Poison, Confusion, Tear, Knockout.</summary>
+        /// <summary>Spawn a free-standing gas cloud at a world cell. SpawnGas
+        /// hard-casts its sourceObject to ObjectReal internally
+        /// (gas.sourceObject = (ObjectReal)sourceObject), so an Agent source
+        /// throws InvalidCastException — the old bug. A gas cloud therefore
+        /// NEEDS a real object source: reuse a GasVent already on that cell,
+        /// else spawn one there and vent from it. Contents e.g. Flammable,
+        /// Poison, Confusion, Tear, Knockout.</summary>
         public static Gas GasCloud(Vector2 pos, string contents = "Poison")
         {
             var gc = GC;
             if (gc == null || gc.spawnerMain == null)
                 throw new InvalidOperationException("no game running");
-            return gc.spawnerMain.SpawnGas(gc.playerAgent, new Vector3(pos.x, pos.y, 0f),
+            var source = FindObjectAt(pos, "GasVent", 0.75f) ?? SpawnObject("GasVent", pos);
+            if (source == null)
+                throw new InvalidOperationException("could not spawn a GasVent source object");
+            return gc.spawnerMain.SpawnGas(source, new Vector3(pos.x, pos.y, 0f),
                 new List<string> { contents }, null, spawnOnClients: true);
         }
 
@@ -575,6 +598,101 @@ namespace EightPlayers
             if (gc == null || gc.playerAgent == null)
                 throw new InvalidOperationException("no player");
             agent.relationships.JoinParty(gc.playerAgent);
+        }
+
+        // ---- one-shot GM readouts (JSON) --------------------------------------
+
+        /// <summary>One-shot inventory listing — JSON array of
+        /// {name, count, equipped} from the agent's InvItemList. invItemRealName
+        /// is the canonical item id (invItemName is often null). Kills the
+        /// 25-round-trip indexed item reads.</summary>
+        public static string InventoryJson(int uid)
+        {
+            var agent = Require(uid);
+            var arr = new JArray();
+            foreach (var it in agent.inventory.InvItemList)
+            {
+                if (it == null || string.IsNullOrEmpty(it.invItemRealName))
+                    continue;
+                arr.Add(new JObject
+                {
+                    ["name"] = it.invItemRealName,
+                    ["count"] = it.invItemCount,
+                    ["equipped"] = it.equipped,
+                });
+            }
+            return arr.ToString(Formatting.None);
+        }
+
+        /// <summary>Agents AND objects within radius of a point, sorted by
+        /// distance, capped at ~40 entries total — "what's around the player"
+        /// in one round trip.</summary>
+        public static string NearbyJson(Vector2 pos, float radius)
+        {
+            var gc = GC;
+            if (gc == null)
+                throw new InvalidOperationException("no game running");
+            float r2 = radius * radius;
+            var hits = new List<(float d2, bool isAgent, JObject o)>();
+            foreach (var a in Agents())
+            {
+                if (a.tr == null) continue;
+                Vector2 p = a.tr.position;
+                float d2 = (p - pos).sqrMagnitude;
+                if (d2 > r2) continue;
+                hits.Add((d2, true, new JObject
+                {
+                    ["uid"] = a.UID,
+                    ["name"] = string.IsNullOrEmpty(a.agentRealName) ? a.agentName : a.agentRealName,
+                    ["type"] = a.agentName,
+                    ["x"] = Mathf.Round(p.x * 100f) / 100f,
+                    ["y"] = Mathf.Round(p.y * 100f) / 100f,
+                    ["hp"] = Mathf.Round(a.health * 10f) / 10f,
+                    ["dead"] = a.dead,
+                }));
+            }
+            foreach (var o in Objects())
+            {
+                if (o.tr == null || o.destroying) continue;
+                Vector2 p = o.tr.position;
+                float d2 = (p - pos).sqrMagnitude;
+                if (d2 > r2) continue;
+                hits.Add((d2, false, new JObject
+                {
+                    ["uid"] = o.UID,
+                    ["name"] = o.objectName,
+                    ["x"] = Mathf.Round(p.x * 100f) / 100f,
+                    ["y"] = Mathf.Round(p.y * 100f) / 100f,
+                }));
+            }
+            hits.Sort((a, b) => a.d2.CompareTo(b.d2));
+            var agents = new JArray();
+            var objects = new JArray();
+            int taken = 0;
+            foreach (var h in hits)
+            {
+                if (taken >= 40) break;
+                (h.isAgent ? agents : objects).Add(h.o);
+                taken++;
+            }
+            return new JObject
+            {
+                ["agents"] = agents,
+                ["objects"] = objects,
+                ["total"] = hits.Count,
+            }.ToString(Formatting.None);
+        }
+
+        /// <summary>EXPERIMENTAL: make an NPC walk somewhere via its OWN
+        /// pathfinding (the same finalDestPosition mechanism the game's goals
+        /// feed PathfindingAI.UpdateTargetPosition with). The brain's active
+        /// goal may re-route the agent on its next think tick, so treat this
+        /// as a nudge, not a lock.</summary>
+        public static void WalkNpc(int uid, Vector2 pos)
+        {
+            var agent = Require(uid);
+            agent.SetFinalDestObject(null);
+            agent.SetFinalDestPosition(new Vector3(pos.x, pos.y, 0f));
         }
 
         private static Agent Require(int uid)

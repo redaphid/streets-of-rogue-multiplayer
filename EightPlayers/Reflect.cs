@@ -20,6 +20,8 @@ namespace EightPlayers
     // Targets (a small prefix scheme, shared by inspect/get/set/call):
     //   gc                 the GameController singleton (GameController.gameController)
     //   agent:<uid>        a live agent by UID (GameStateApi.FindAgent)
+    //   player / player:<n> the live player-N agent (1-based; uids churn on level
+    //                      load, this alias stays stable)
     //   handle:<id>        an object previously returned by find/get/call
     //   static:<TypeName>  the Type itself, for static members
     //
@@ -29,6 +31,24 @@ namespace EightPlayers
     {
         private const int MaxOutput = 8192;     // ~8KB cap on any single reply
         private const int MaxCollection = 12;   // first-N items summarized for collections
+        private const int MaxDictKeys = 100;    // dictionary keys inlined in summaries
+
+        // Tracks the TOTAL serialized size of a reply while it is being built, so
+        // deep object graphs stop appending the moment the cap is hit ("$truncated"
+        // markers appear where output was cut). Leaf tokens + member names charge
+        // the budget; composite containers don't double-charge.
+        private sealed class Budget
+        {
+            private int _remaining;
+            public Budget(int max) { _remaining = max; }
+            public bool Exhausted => _remaining <= 0;
+            public void Charge(int chars) { _remaining -= chars; }
+            public void Charge(JToken leaf)
+            {
+                try { _remaining -= leaf.ToString(Formatting.None).Length + 2; }
+                catch { _remaining -= 16; }
+            }
+        }
         private const BindingFlags AllMembers =
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance |
             BindingFlags.Static | BindingFlags.FlattenHierarchy;
@@ -72,6 +92,16 @@ namespace EightPlayers
                 if (a == null) throw new ArgumentException($"no agent {spec.Substring(6)}");
                 return new Target { Obj = a, Type = a.GetType() };
             }
+            if (spec.Equals("player", StringComparison.OrdinalIgnoreCase)
+                || spec.StartsWith("player:", StringComparison.OrdinalIgnoreCase))
+            {
+                // player:<n> — the live player-N agent (1-based). Uids churn
+                // during level load; this alias always resolves to the current one.
+                int n = spec.Length > 6 && spec[6] == ':' ? int.Parse(spec.Substring(7)) : 1;
+                var p = GameStateApi.FindPlayer(n);
+                if (p == null) throw new ArgumentException($"no player {n}");
+                return new Target { Obj = p, Type = p.GetType() };
+            }
             if (spec.StartsWith("handle:", StringComparison.OrdinalIgnoreCase))
             {
                 var o = ResolveHandle(int.Parse(spec.Substring(7)));
@@ -84,7 +114,7 @@ namespace EightPlayers
                 if (t == null) throw new ArgumentException($"no type '{spec.Substring(7)}'");
                 return new Target { Obj = null, Type = t };
             }
-            throw new ArgumentException($"unknown target '{spec}' (use gc | agent:<uid> | handle:<id> | static:<Type>)");
+            throw new ArgumentException($"unknown target '{spec}' (use gc | agent:<uid> | player:<n> | handle:<id> | static:<Type>)");
         }
 
         public static Type FindType(string name)
@@ -123,15 +153,15 @@ namespace EightPlayers
                     ["$type"] = t.Type.FullName,
                 };
                 if (t.Obj != null) root["$toString"] = SafeToString(t.Obj);
-                root["members"] = DumpMembers(t.Obj, t.Type, depth: 1);
+                root["members"] = DumpMembers(t.Obj, t.Type, depth: 1, new Budget(MaxOutput));
                 return Cap(root);
             }
             catch (Exception e) { return Err(e); }
         }
 
         /// <summary>Read a dotted path (fields/props, [i] indexers, [key] dict keys)
-        /// off a target root; scalars come back JSON-encoded, reference types as a
-        /// handle string.</summary>
+        /// off a target root; scalars come back JSON-encoded, collections inline a
+        /// summary (count + first items / dict keys), other reference types a handle.</summary>
         public static string Get(string targetSpec, string path)
         {
             try
@@ -139,6 +169,59 @@ namespace EightPlayers
                 var t = ResolveTarget(targetSpec);
                 var (value, _) = Navigate(t.Obj, t.Type, path);
                 return Cap(EncodeResult(value));
+            }
+            catch (Exception e) { return Err(e); }
+        }
+
+        /// <summary>Batch read: pipe-separated paths off ONE target in one round
+        /// trip (channel latency dominates, so this is the batching primitive).
+        /// Returns a JSON object mapping each path to its value; per-path errors
+        /// are recorded inline instead of failing the batch.</summary>
+        public static string GetMany(string targetSpec, string pipePaths)
+        {
+            try
+            {
+                var t = ResolveTarget(targetSpec);
+                var result = new JObject();
+                foreach (var raw in (pipePaths ?? "").Split('|'))
+                {
+                    var path = raw.Trim();
+                    if (path.Length == 0 || result.ContainsKey(path)) continue;
+                    try
+                    {
+                        var (value, _) = Navigate(t.Obj, t.Type, path);
+                        result[path] = EncodeResult(value);
+                    }
+                    catch (Exception e) { result[path] = "error: " + Root(e).Message; }
+                }
+                return Cap(result);
+            }
+            catch (Exception e) { return Err(e); }
+        }
+
+        /// <summary>List the string keys of a dictionary member directly (works on
+        /// an IDictionary value or an already-extracted Keys collection). Empty
+        /// path = the target itself.</summary>
+        public static string Keys(string targetSpec, string path)
+        {
+            try
+            {
+                var t = ResolveTarget(targetSpec);
+                var (value, _) = Navigate(t.Obj, t.Type, path);
+                IEnumerable source;
+                if (value is IDictionary dict) source = dict.Keys;
+                else if (value is IEnumerable en && !(value is string)) source = en;
+                else throw new ArgumentException($"'{path}' is not a dictionary or key collection ({value?.GetType().Name ?? "null"})");
+                var keys = new JArray();
+                int total = 0;
+                foreach (var k in source)
+                {
+                    total++;
+                    if (keys.Count < 300) keys.Add(SafeToString(k));
+                }
+                var o = new JObject { ["count"] = total, ["keys"] = keys };
+                if (total > keys.Count) o["$truncated"] = true;
+                return Cap(o);
             }
             catch (Exception e) { return Err(e); }
         }
@@ -225,33 +308,54 @@ namespace EightPlayers
             catch (Exception e) { return Err(e); }
         }
 
-        /// <summary>List fields/properties/methods of a type for discovery.</summary>
-        public static string Members(string typeName)
+        /// <summary>List fields/properties/methods of a type for discovery.
+        /// kind: fields|props|methods|all (default all); nameFilter: optional
+        /// case-insensitive substring on the member name — big types (Agent ~45KB
+        /// unfiltered) become browsable in slices.</summary>
+        public static string Members(string typeName, string kind = "all", string nameFilter = null)
         {
             try
             {
                 var type = FindType(typeName);
                 if (type == null) throw new ArgumentException($"no type '{typeName}'");
-                var fields = new JArray();
-                foreach (var f in type.GetFields(AllMembers))
-                    fields.Add($"{(f.IsStatic ? "static " : "")}{TypeName(f.FieldType)} {f.Name}");
-                var props = new JArray();
-                foreach (var p in type.GetProperties(AllMembers))
-                    props.Add($"{TypeName(p.PropertyType)} {p.Name}{(p.CanRead ? " get" : "")}{(p.CanWrite ? " set" : "")}");
-                var methods = new JArray();
-                foreach (var m in type.GetMethods(AllMembers))
+                kind = string.IsNullOrEmpty(kind) ? "all" : kind.ToLowerInvariant();
+                bool all = kind == "all";
+                if (!all && kind != "fields" && kind != "props" && kind != "properties" && kind != "methods")
+                    throw new ArgumentException($"kind '{kind}' (use fields | props | methods | all)");
+                bool Match(string name) =>
+                    string.IsNullOrEmpty(nameFilter) || name.IndexOf(nameFilter, StringComparison.OrdinalIgnoreCase) >= 0;
+
+                var result = new JObject { ["type"] = type.FullName };
+                if (!string.IsNullOrEmpty(nameFilter)) result["filter"] = nameFilter;
+                if (all || kind == "fields")
                 {
-                    if (m.IsSpecialName) continue; // skip property accessors
-                    var ps = string.Join(", ", m.GetParameters().Select(p => $"{TypeName(p.ParameterType)} {p.Name}"));
-                    methods.Add($"{(m.IsStatic ? "static " : "")}{TypeName(m.ReturnType)} {m.Name}({ps})");
+                    var fields = new JArray();
+                    foreach (var f in type.GetFields(AllMembers))
+                        if (Match(f.Name))
+                            fields.Add($"{(f.IsStatic ? "static " : "")}{TypeName(f.FieldType)} {f.Name}");
+                    result["fields"] = fields;
                 }
-                return Cap(new JObject
+                if (all || kind == "props" || kind == "properties")
                 {
-                    ["type"] = type.FullName,
-                    ["fields"] = fields,
-                    ["properties"] = props,
-                    ["methods"] = methods,
-                });
+                    var props = new JArray();
+                    foreach (var p in type.GetProperties(AllMembers))
+                        if (Match(p.Name))
+                            props.Add($"{TypeName(p.PropertyType)} {p.Name}{(p.CanRead ? " get" : "")}{(p.CanWrite ? " set" : "")}");
+                    result["properties"] = props;
+                }
+                if (all || kind == "methods")
+                {
+                    var methods = new JArray();
+                    foreach (var m in type.GetMethods(AllMembers))
+                    {
+                        if (m.IsSpecialName) continue; // skip property accessors
+                        if (!Match(m.Name)) continue;
+                        var ps = string.Join(", ", m.GetParameters().Select(p => $"{TypeName(p.ParameterType)} {p.Name}"));
+                        methods.Add($"{(m.IsStatic ? "static " : "")}{TypeName(m.ReturnType)} {m.Name}({ps})");
+                    }
+                    result["methods"] = methods;
+                }
+                return Cap(result);
             }
             catch (Exception e) { return Err(e); }
         }
@@ -406,61 +510,107 @@ namespace EightPlayers
 
         // ---- value encoding ---------------------------------------------------
 
-        private static JObject DumpMembers(object obj, Type type, int depth)
+        private static JObject DumpMembers(object obj, Type type, int depth, Budget budget)
         {
             var result = new JObject();
             foreach (var f in type.GetFields(AllMembers))
             {
-                try { result[f.Name] = Summarize(f.GetValue(f.IsStatic ? null : obj), depth); }
+                if (budget.Exhausted) { result["$truncated"] = true; return result; }
+                budget.Charge(f.Name.Length + 4);
+                try { result[f.Name] = Summarize(f.GetValue(f.IsStatic ? null : obj), depth, budget); }
                 catch (Exception e) { result[f.Name] = "<err> " + Root(e).Message; }
             }
             foreach (var p in type.GetProperties(AllMembers))
             {
                 if (!p.CanRead || p.GetIndexParameters().Length > 0) continue;
                 if (result.ContainsKey(p.Name)) continue;
-                try { result[p.Name] = Summarize(p.GetValue((p.GetMethod?.IsStatic ?? false) ? null : obj), depth); }
+                if (budget.Exhausted) { result["$truncated"] = true; return result; }
+                budget.Charge(p.Name.Length + 4);
+                try { result[p.Name] = Summarize(p.GetValue((p.GetMethod?.IsStatic ?? false) ? null : obj), depth, budget); }
                 catch (Exception e) { result[p.Name] = "<err> " + Root(e).Message; }
             }
             return result;
         }
 
-        // Recurse one level for reference objects; summarize collections with a
-        // count + first-N; scalars/vectors inline; deeper refs become handles.
-        private static JToken Summarize(object v, int depth)
+        // Recurse one level for plain reference objects; summarize collections
+        // with a count + first-N (dictionaries: their string keys); scalars/vectors
+        // inline. UnityEngine.Object values (Transform, GameObject, Component,
+        // Sprite, ...) are ALWAYS a handle reference — Transform is IEnumerable
+        // over its children, so enumerating/recursing Unity objects walked the
+        // whole scene graph (the 763KB inspect bug).
+        private static JToken Summarize(object v, int depth, Budget budget)
         {
             if (v == null || (v is UnityEngine.Object uo && uo == null)) return JValue.CreateNull();
             var t = v.GetType();
-            if (IsScalar(t)) return ScalarToken(v);
+            if (IsScalar(t)) return Charged(ScalarToken(v), budget);
             var vec = VectorToken(v);
-            if (vec != null) return vec;
+            if (vec != null) return Charged(vec, budget);
+
+            if (v is UnityEngine.Object)
+                return Charged(HandleToken(v), budget);
+
+            if (v is IDictionary dict)
+            {
+                // Inline the keys (up to MaxDictKeys, as strings) — listing dict
+                // keys used to take String.Join gymnastics through call_method.
+                var keys = new JArray();
+                int total = 0;
+                foreach (var k in dict.Keys)
+                {
+                    total++;
+                    if (keys.Count < MaxDictKeys && !budget.Exhausted)
+                    {
+                        var s = SafeToString(k);
+                        budget.Charge(s.Length + 3);
+                        keys.Add(s);
+                    }
+                }
+                var d = new JObject { ["$type"] = TypeName(t), ["count"] = total, ["keys"] = keys };
+                if (total > keys.Count) d["$truncated"] = true;
+                return d;
+            }
 
             if (v is IEnumerable en && !(v is string))
             {
+                bool isKeyCollection = t.Name.IndexOf("KeyCollection", StringComparison.Ordinal) >= 0;
+                int maxItems = isKeyCollection ? MaxDictKeys : MaxCollection;
                 var items = new JArray();
-                int n = 0, shown = 0;
+                int n = 0;
+                bool cut = false;
                 foreach (var it in en)
                 {
                     n++;
-                    if (shown < MaxCollection)
+                    if (items.Count >= maxItems || budget.Exhausted) { cut = true; continue; }
+                    try
                     {
-                        try { items.Add(Summarize(it, depth - 1)); shown++; }
-                        catch (Exception e) { items.Add("<err> " + Root(e).Message); shown++; }
+                        items.Add(isKeyCollection
+                            ? (JToken)SafeToString(it)
+                            : Summarize(it, depth - 1, budget));
                     }
+                    catch (Exception e) { items.Add("<err> " + Root(e).Message); }
                 }
-                return new JObject { ["$type"] = t.Name, ["count"] = n, ["items"] = items };
+                var c = new JObject { ["$type"] = TypeName(t), ["count"] = n, [isKeyCollection ? "keys" : "items"] = items };
+                if (cut) c["$truncated"] = true;
+                return c;
             }
 
-            if (depth <= 0)
-                return HandleToken(v);
+            if (depth <= 0 || budget.Exhausted)
+                return Charged(HandleToken(v), budget);
 
             // recurse one level into the reference object's members
             var o = new JObject { ["$type"] = t.Name, ["$handle"] = Register(v) };
-            if (v is UnityEngine.Object) o["$name"] = SafeToString(v);
-            o["members"] = DumpMembers(v, t, depth - 1);
+            o["members"] = DumpMembers(v, t, depth - 1, budget);
             return o;
         }
 
-        // For get/call results: scalar → JSON; reference → handle string.
+        private static JToken Charged(JToken leaf, Budget budget)
+        {
+            budget.Charge(leaf);
+            return leaf;
+        }
+
+        // For get/call results: scalar → JSON; collections/dictionaries → inline
+        // summary (count + first items / keys); other references → handle.
         private static JToken EncodeResult(object v)
         {
             if (v == null || (v is UnityEngine.Object uo && uo == null)) return JValue.CreateNull();
@@ -468,6 +618,8 @@ namespace EightPlayers
             if (IsScalar(t)) return ScalarToken(v);
             var vec = VectorToken(v);
             if (vec != null) return vec;
+            if (!(v is UnityEngine.Object) && (v is IDictionary || (v is IEnumerable && !(v is string))))
+                return Summarize(v, 0, new Budget(MaxOutput / 2));
             return HandleToken(v);
         }
 
