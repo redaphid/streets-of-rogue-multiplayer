@@ -93,7 +93,23 @@ namespace EightPlayers
             try
             {
                 EcsNet.NpcSync.BypassSuppression = true;
-                return gc.spawnerMain.SpawnAgent(new Vector3(pos.x, pos.y, 0f), agentType, playerColor);
+                var v = new Vector3(pos.x, pos.y, 0f);
+                if (playerColor != 0)
+                    // Player-body path: the playerColor overload delegates with
+                    // multPlayer:true — input-driven, no NPC brain wanted.
+                    return gc.spawnerMain.SpawnAgent(v, agentType, playerColor);
+                // NPC path (rogue-gm#5): use the (pos, agentSource, agentType)
+                // overload — the same call the game's own mid-level event
+                // spawners (LevelFeelings) use. It delegates with
+                // multPlayer:false, which runs SetupAgentStats("") and starts
+                // BrainUpdate.StartBrain(...), registering the agent into
+                // LoadLevel.AIOffsetGroups — the list whose coroutine ticks
+                // agent brains. The playerColor overload we used before
+                // delegates with multPlayer:true (Mirror's remote player-body
+                // path) and skips BOTH, so spawned NPCs stood frozen forever.
+                // Callers that want an inert body (avatars, dynamic mirrors)
+                // already deactivate the brain explicitly after spawn.
+                return gc.spawnerMain.SpawnAgent(v, (PlayfieldObject)null, agentType);
             }
             finally
             {
