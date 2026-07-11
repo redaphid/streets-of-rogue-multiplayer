@@ -150,23 +150,23 @@ namespace EightPlayers
                 }
                 case "hp":
                 {
-                    var hp = GameStateApi.ChangeHealth(int.Parse(parts[1]), float.Parse(parts[2]));
+                    var hp = GameStateApi.ChangeHealth(GameStateApi.ResolveUid(parts[1]), float.Parse(parts[2]));
                     Out($"agent {parts[1]} health now {hp:0.#}");
                     break;
                 }
                 case "kill":
-                    GameStateApi.Kill(int.Parse(parts[1]));
+                    GameStateApi.Kill(GameStateApi.ResolveUid(parts[1]));
                     Out($"agent {parts[1]} killed");
                     break;
                 case "status":
                 {
                     bool on = parts.Length < 4 || parts[3] != "off";
-                    GameStateApi.SetStatus(int.Parse(parts[1]), parts[2], on);
+                    GameStateApi.SetStatus(GameStateApi.ResolveUid(parts[1]), parts[2], on);
                     Out($"agent {parts[1]} status {parts[2]} {(on ? "on" : "off")}");
                     break;
                 }
                 case "statuses":
-                    Out($"agent {parts[1]} statuses: {string.Join(",", new List<string>(GameStateApi.Statuses(int.Parse(parts[1]))).ToArray())}");
+                    Out($"agent {parts[1]} statuses: {string.Join(",", new List<string>(GameStateApi.Statuses(GameStateApi.ResolveUid(parts[1]))).ToArray())}");
                     break;
                 case "say":
                 {
@@ -174,24 +174,24 @@ namespace EightPlayers
                     // bubble. Text is the rest of the line (spaces allowed).
                     var sayParts = cmd.Split(new[] { ' ' }, 3);
                     if (sayParts.Length < 3) { Out("usage: say <uid> <text>"); break; }
-                    GameStateApi.Say(int.Parse(sayParts[1]), sayParts[2]);
+                    GameStateApi.Say(GameStateApi.ResolveUid(sayParts[1]), sayParts[2]);
                     Out($"agent {sayParts[1]} said \"{sayParts[2]}\"");
                     break;
                 }
                 case "give":
-                    GameStateApi.GiveItem(int.Parse(parts[1]), parts[2], parts.Length > 3 ? int.Parse(parts[3]) : 1);
+                    GameStateApi.GiveItem(GameStateApi.ResolveUid(parts[1]), parts[2], parts.Length > 3 ? int.Parse(parts[3]) : 1);
                     Out($"gave {parts[2]} to agent {parts[1]}");
                     break;
                 case "drop":
-                    GameStateApi.DropItem(int.Parse(parts[1]), parts[2]);
+                    GameStateApi.DropItem(GameStateApi.ResolveUid(parts[1]), parts[2]);
                     Out($"agent {parts[1]} dropped {parts[2]}");
                     break;
                 case "equip":
-                    GameStateApi.EquipWeapon(int.Parse(parts[1]), parts[2]);
+                    GameStateApi.EquipWeapon(GameStateApi.ResolveUid(parts[1]), parts[2]);
                     Out($"agent {parts[1]} equipped {parts[2]}");
                     break;
                 case "tp":
-                    GameStateApi.Teleport(int.Parse(parts[1]), ParseVec(parts[2], parts[3]));
+                    GameStateApi.Teleport(GameStateApi.ResolveUid(parts[1]), ParseVec(parts[2], parts[3]));
                     Out($"agent {parts[1]} teleported to {parts[2]},{parts[3]}");
                     break;
                 case "opendoor":
@@ -246,7 +246,7 @@ namespace EightPlayers
                     Out($"container at {parts[1]},{parts[2]} given {parts[3]}");
                     break;
                 case "shoptake":
-                    GameStateApi.ShopTake(int.Parse(parts[1]), parts[2]);
+                    GameStateApi.ShopTake(GameStateApi.ResolveUid(parts[1]), parts[2]);
                     Out($"took {parts[2]} from agent {parts[1]}");
                     break;
                 case "chesttake":
@@ -390,7 +390,7 @@ namespace EightPlayers
                 }
                 case "pickup":
                     // pickup <agentUid> <x> <y> <itemName>
-                    GameStateApi.PickUpGroundItem(int.Parse(parts[1]), ParseVec(parts[2], parts[3].Split(' ')[0]),
+                    GameStateApi.PickUpGroundItem(GameStateApi.ResolveUid(parts[1]), ParseVec(parts[2], parts[3].Split(' ')[0]),
                         parts[3].Contains(" ") ? parts[3].Substring(parts[3].IndexOf(' ') + 1) : null);
                     Out("pickup attempted");
                     break;
@@ -419,16 +419,16 @@ namespace EightPlayers
                 case "gascloud":
                 {
                     var gas = GameStateApi.GasCloud(ParseVec(parts[1], parts[2]), parts.Length > 3 ? parts[3] : "Poison");
-                    Out($"gas cloud at {parts[1]},{parts[2]}{(gas == null ? " (null)" : "")}");
+                    Out($"gas cloud at {parts[1]},{parts[2]}{(gas == null ? " (vent spawned; venting momentarily)" : "")}");
                     break;
                 }
                 case "recruit":
-                    GameStateApi.Recruit(int.Parse(parts[1]));
+                    GameStateApi.Recruit(GameStateApi.ResolveUid(parts[1]));
                     Out($"agent {parts[1]} recruited into the party");
                     break;
                 case "inventory":
                     // inventory <uid> — one-shot JSON inventory listing
-                    Out(GameStateApi.InventoryJson(int.Parse(parts[1])));
+                    Out(GameStateApi.InventoryJson(GameStateApi.ResolveUid(parts[1])));
                     break;
                 case "nearby":
                     // nearby <x> <y> <radius> — agents + objects within radius
@@ -437,7 +437,7 @@ namespace EightPlayers
                 case "walknpc":
                     // walknpc <uid> <x> <y> — EXPERIMENTAL: route an NPC via its
                     // own pathfinding (brain goals may re-route it)
-                    GameStateApi.WalkNpc(int.Parse(parts[1]), ParseVec(parts[2], parts[3]));
+                    GameStateApi.WalkNpc(GameStateApi.ResolveUid(parts[1]), ParseVec(parts[2], parts[3]));
                     Out($"agent {parts[1]} walking to {parts[2]},{parts[3]} (experimental — brain may override)");
                     break;
 

@@ -45,6 +45,25 @@ namespace EightPlayers
             return null;
         }
 
+        /// <summary>Resolve an agent spec from a command arg: a numeric uid, or
+        /// the stable aliases "player" / "player:N" (uids churn even on settled
+        /// levels — aliases resolve live each call).</summary>
+        public static int ResolveUid(string spec)
+        {
+            if (spec.StartsWith("player", System.StringComparison.OrdinalIgnoreCase))
+            {
+                int n = 1;
+                int colon = spec.IndexOf(':');
+                if (colon >= 0 && !int.TryParse(spec.Substring(colon + 1), out n))
+                    throw new System.ArgumentException($"bad player alias '{spec}'");
+                var p = FindPlayer(n < 1 ? 1 : n);
+                if (p == null)
+                    throw new System.ArgumentException($"no player {n}");
+                return p.UID;
+            }
+            return int.Parse(spec);
+        }
+
         public static IEnumerable<Agent> Agents()
         {
             var gc = GC;
@@ -582,11 +601,38 @@ namespace EightPlayers
             var gc = GC;
             if (gc == null || gc.spawnerMain == null)
                 throw new InvalidOperationException("no game running");
-            var source = FindObjectAt(pos, "GasVent", 0.75f) ?? SpawnObject("GasVent", pos);
-            if (source == null)
+            var source = FindObjectAt(pos, "GasVent", 0.75f)
+                ?? FindObjectAt(pos, null, 4f); // any initialized object works as a source
+            if (source != null)
+                return gc.spawnerMain.SpawnGas(source, new Vector3(pos.x, pos.y, 0f),
+                    new List<string> { contents }, null, spawnOnClients: true);
+            // Nothing initialized nearby: spawn a vent, but venting from an object
+            // the same tick it spawns NREs inside SpawnGas (Start() hasn't run).
+            // Defer the vent until the object reports didStart.
+            var vent = SpawnObject("GasVent", pos);
+            if (vent == null)
                 throw new InvalidOperationException("could not spawn a GasVent source object");
-            return gc.spawnerMain.SpawnGas(source, new Vector3(pos.x, pos.y, 0f),
-                new List<string> { contents }, null, spawnOnClients: true);
+            EightPlayersPlugin.Instance.StartCoroutine(VentWhenReady(vent, pos, contents));
+            return null; // deferred — gas appears within ~a second
+        }
+
+        private static System.Collections.IEnumerator VentWhenReady(ObjectReal source, Vector2 pos, string contents)
+        {
+            for (int i = 0; i < 120 && source != null && !source.didStart; i++)
+                yield return null;
+            yield return new WaitForSeconds(0.25f);
+            var gc = GC;
+            if (gc == null || gc.spawnerMain == null || source == null)
+                yield break;
+            try
+            {
+                gc.spawnerMain.SpawnGas(source, new Vector3(pos.x, pos.y, 0f),
+                    new List<string> { contents }, null, spawnOnClients: true);
+            }
+            catch (System.Exception e)
+            {
+                EightPlayersPlugin.Log.LogWarning($"deferred gascloud failed: {e.Message}");
+            }
         }
 
         /// <summary>Recruit an NPC into the local player's party through the
