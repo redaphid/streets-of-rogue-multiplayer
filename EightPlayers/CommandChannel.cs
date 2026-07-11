@@ -38,6 +38,12 @@ namespace EightPlayers
     //   nearby <x> <y> <radius>       agents + objects within radius (JSON)
     //   walknpc <uid> <x> <y>         EXPERIMENTAL: NPC walks via own pathfinding
     //
+    // Code mode (BehaviorEngine.cs — Lua scripts run in-game at frame rate):
+    //   behavior <uid|player[:n]> <lua...>     install/replace (script = rest of line)
+    //   behaviorb64 <uid> <base64> [hz]        same, base64-encoded (newlines survive)
+    //   behaviors                              list {uid,hz,errors,enabled,bytes}
+    //   clearbehavior <uid|all>                remove behavior(s)
+    //
     // Reflection (Reflect.cs; targets: gc | agent:<uid> | player[:<n>] |
     // handle:<id> | static:<Type>):
     //   inspect/get/set/call/find/types, members <Type> [kind] [nameFilter],
@@ -439,6 +445,43 @@ namespace EightPlayers
                     // own pathfinding (brain goals may re-route it)
                     GameStateApi.WalkNpc(GameStateApi.ResolveUid(parts[1]), ParseVec(parts[2], parts[3]));
                     Out($"agent {parts[1]} walking to {parts[2]},{parts[3]} (experimental — brain may override)");
+                    break;
+
+                // ---- code mode: in-game Lua behaviors ------------------------
+                case "behavior":
+                {
+                    // behavior <uid|player[:n]> <lua...> — script is the rest of
+                    // the line (single-line scripts; use behaviorb64 for real ones)
+                    var bp = cmd.Split(new[] { ' ' }, 3);
+                    if (bp.Length < 3) { Out("usage: behavior <uid|player[:n]> <lua...>"); break; }
+                    int buid = GameStateApi.ResolveUid(bp[1]);
+                    var err = BehaviorEngine.Install(buid, bp[2], 10f);
+                    Out(err ?? $"behavior installed on agent {buid} (10Hz)");
+                    break;
+                }
+                case "behaviorb64":
+                {
+                    // behaviorb64 <uid|player[:n]> <base64> [hz] — the preferred
+                    // form: newlines/pipes survive the one-line channel
+                    var bp = cmd.Split(new[] { ' ' }, 4);
+                    if (bp.Length < 3) { Out("usage: behaviorb64 <uid|player[:n]> <base64> [hz]"); break; }
+                    string lua = Encoding.UTF8.GetString(Convert.FromBase64String(bp[2]));
+                    float hz = bp.Length > 3 ? float.Parse(bp[3]) : 10f;
+                    int buid = GameStateApi.ResolveUid(bp[1]);
+                    var err = BehaviorEngine.Install(buid, lua, hz);
+                    Out(err ?? $"behavior installed on agent {buid} ({Encoding.UTF8.GetByteCount(lua)} bytes, {hz:0.#}Hz)");
+                    break;
+                }
+                case "behaviors":
+                    Out(BehaviorEngine.List());
+                    break;
+                case "clearbehavior":
+                    if (parts.Length > 1 && parts[1] == "all")
+                        Out($"cleared {BehaviorEngine.ClearAll()} behavior(s)");
+                    else
+                        Out(BehaviorEngine.Clear(GameStateApi.ResolveUid(parts[1]))
+                            ? $"behavior cleared on agent {parts[1]}"
+                            : $"no behavior on agent {parts[1]}");
                     break;
 
                 // ---- general reflection surface -----------------------------

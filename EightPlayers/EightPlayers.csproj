@@ -12,10 +12,16 @@
          Proton) in Jul 2026; prefer the Linux Managed dir if it ever returns. -->
     <ManagedDir>$(GameDir)/StreetsOfRogue_Data/Managed</ManagedDir>
     <ManagedDir Condition="Exists('$(GameDir)/StreetsOfRogueLinux_Data/Managed/Assembly-CSharp.dll')">$(GameDir)/StreetsOfRogueLinux_Data/Managed</ManagedDir>
+    <!-- Copy NuGet-resolved dlls (MoonSharp.Interpreter.dll) into the build
+         output: BepInEx loads plugin dependencies from the plugins dir, so the
+         deploy step must ship EightPlayers.dll AND MoonSharp.Interpreter.dll. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <!-- Lua interpreter for the BehaviorEngine ("code mode" agent scripts). -->
+    <PackageReference Include="MoonSharp" Version="2.0.0.0" />
   </ItemGroup>
 
   <ItemGroup>

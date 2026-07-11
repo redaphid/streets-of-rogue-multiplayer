@@ -87,9 +87,32 @@ namespace EightPlayers
             ZeroTwoMapping.Tick();
             ControllerDebug.Tick();
             CommandChannel.Tick();
+            if (!_behaviorEngineDown)
+            {
+                try
+                {
+                    TickBehaviorEngine();
+                }
+                catch (System.Exception e)
+                {
+                    // Most likely MoonSharp.Interpreter.dll missing from the
+                    // plugins dir (the deploy must copy BOTH dlls). Disable
+                    // code mode; everything else keeps working.
+                    _behaviorEngineDown = true;
+                    Log.LogError($"BehaviorEngine disabled: {e.GetType().Name}: {e.Message}");
+                }
+            }
             LoadWatchdog.Tick();
             Tracing.Trace.Tick();
         }
+
+        private static bool _behaviorEngineDown;
+
+        // Separate method so a MoonSharp assembly-load failure surfaces as a
+        // catchable exception at THIS call site instead of failing the JIT of
+        // Update itself.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void TickBehaviorEngine() => BehaviorEngine.Tick();
 
         private void OnApplicationQuit()
         {
