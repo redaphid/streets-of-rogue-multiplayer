@@ -44,6 +44,13 @@ namespace EightPlayers
     //   setmenu <uid> <b64json>       custom NPC talk menu; b64(["opt",...]) ≤6×40;
     //                                 selections stream as menu_choice events
     //   clearmenu <uid|all>           restore the vanilla talk menu
+    //   label <uid|player[:n]> <TEXT...>  quest-marker-style world-space text
+    //                                 pinned over an agent OR object (uid may
+    //                                 be an ObjectReal uid); text = rest of
+    //                                 line, case preserved (vanilla style is
+    //                                 ALL CAPS), ≤48 chars
+    //   clearlabel <uid|all>          remove label(s)
+    //   labels                        list active labels
     //
     // Code mode (BehaviorEngine.cs — Lua scripts run in-game at frame rate):
     //   behavior <uid|player[:n]> <lua...>     install/replace (script = rest of line)
@@ -479,6 +486,25 @@ namespace EightPlayers
                     Out(parts[1] == "all"
                         ? $"cleared {DialogueMenuCore.ClearAll()} menu(s)"
                         : DialogueMenuCore.Clear(GameStateApi.ResolveUid(parts[1])));
+                    break;
+                case "label":
+                {
+                    // label <uid|player[:n]> <TEXT...> — pin quest-marker-style
+                    // world-space text over an agent or object (rogue-gm#17).
+                    // Text is the rest of the line; case preserved.
+                    var lp = cmd.Split(new[] { ' ' }, 3);
+                    if (lp.Length < 3) { Out("usage: label <uid|player[:n]> <TEXT...>"); break; }
+                    Out(Labels.Apply(GameStateApi.ResolveUid(lp[1]), lp[2]));
+                    break;
+                }
+                case "clearlabel":
+                    // clearlabel <uid|all>
+                    Out(parts[1] == "all"
+                        ? $"cleared {Labels.ClearAll()} label(s)"
+                        : Labels.Clear(GameStateApi.ResolveUid(parts[1])));
+                    break;
+                case "labels":
+                    Out(Labels.Summary());
                     break;
                 case "inventory":
                     // inventory <uid> — one-shot JSON inventory listing

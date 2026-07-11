@@ -104,6 +104,7 @@ namespace EightPlayers
                     Log.LogError($"BehaviorEngine disabled: {e.GetType().Name}: {e.Message}");
                 }
             }
+            Labels.Tick();
             LoadWatchdog.Tick();
             Tracing.Trace.Tick();
         }
