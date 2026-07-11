@@ -350,12 +350,43 @@ namespace EightPlayers
             return null;
         }
 
+        /// <summary>Cleanly remove a world object by uid. Uses ObjectReal.RemoveMe
+        /// — the game's own graceful despawn (drops it from every objectReal list
+        /// and updates the pathfinding graph) — NOT DestroyMe, which plays the
+        /// "ObjectDestroy" sound and spawns wreckage/smoke. So this is silent:
+        /// the object just vanishes, no SFX, no fire, no spilled loot (rogue-gm#30).</summary>
         public static void DestroyObject(int uid)
         {
             var obj = FindObjectReal(uid);
             if (obj == null)
                 throw new ArgumentException($"no object with uid {uid}");
-            obj.DestroyMe(null);
+            obj.RemoveMe();
+        }
+
+        /// <summary>Silently remove every world ObjectReal whose center sits within
+        /// `tolerance` of `pos` (RemoveMe — no wreckage/SFX). Doors are excluded by
+        /// default so razing a footprint doesn't strip doorways. Used by buildmap/
+        /// clearmap to clear solid objects out of the region (rogue-gm#30). One bad
+        /// object (e.g. a missing pool entry) is swallowed so the sweep continues.
+        /// Returns the number removed.</summary>
+        public static int ClearObjectsAt(Vector2 pos, float tolerance = 0.5f, bool includeDoors = false)
+        {
+            var toRemove = new List<ObjectReal>();
+            float t2 = tolerance * tolerance;
+            foreach (var obj in Objects())
+            {
+                if (obj.tr == null || obj.destroying) continue;
+                if (!includeDoors && obj is Door) continue;
+                if (((Vector2)obj.tr.position - pos).sqrMagnitude <= t2)
+                    toRemove.Add(obj);
+            }
+            int removed = 0;
+            foreach (var obj in toRemove)
+            {
+                try { obj.RemoveMe(); removed++; }
+                catch (Exception e) { Debug.LogWarning($"[EP] ClearObjectsAt: {obj?.objectName} failed: {e.Message}"); }
+            }
+            return removed;
         }
 
         /// <summary>Take an item from a shopkeeper-style agent inventory via
@@ -995,7 +1026,7 @@ namespace EightPlayers
         /// <summary>Agents AND objects within radius of a point, sorted by
         /// distance, capped at ~40 entries total — "what's around the player"
         /// in one round trip.</summary>
-        public static string NearbyJson(Vector2 pos, float radius)
+        public static string NearbyJson(Vector2 pos, float radius, bool peopleOnly = false)
         {
             var gc = GC;
             if (gc == null)
@@ -1005,6 +1036,9 @@ namespace EightPlayers
             foreach (var a in Agents())
             {
                 if (a.tr == null) continue;
+                // people-only drops ObjectAgent backers (hp 100/0) and corpses
+                // that clutter target-picking (rogue-gm#15).
+                if (peopleOnly && (a.objectAgent || a.dead)) continue;
                 Vector2 p = a.tr.position;
                 float d2 = (p - pos).sqrMagnitude;
                 if (d2 > r2) continue;
