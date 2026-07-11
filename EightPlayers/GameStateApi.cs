@@ -651,6 +651,203 @@ namespace EightPlayers
             }
         }
 
+        // ---- AI marker (purely cosmetic, rogue-gm#12) -------------------------
+
+        /// <summary>Original light colors of marked agents, keyed by uid, so
+        /// `off` can restore. Uids churn per level — callers re-mark after
+        /// level changes (stale entries are pruned opportunistically).</summary>
+        private static readonly Dictionary<int, Color> _aiMarkerOriginal = new Dictionary<int, Color>();
+
+        /// <summary>Toggle a purely COSMETIC always-visible marker on an
+        /// AI-driven agent: tint the agent's own ambient glow (the
+        /// `LightRealAgent` LightSprite every non-object agent carries under
+        /// its sprite) a distinctive cyan. Safe because the game's per-frame
+        /// brightness pass (Agent.SetLightBrightness) only rewrites the ALPHA
+        /// channel and preserves RGB — so the tint persists, follows the agent
+        /// (it's a child of its sprite transform), and has zero gameplay
+        /// impact: no relationships, no statuses, no AI changes.</summary>
+        public static string AiMarker(int uid, bool on)
+        {
+            var agent = Require(uid);
+            // prune entries whose agent is gone (level churn) — keeps the dict tiny
+            var stale = new List<int>();
+            foreach (var k in _aiMarkerOriginal.Keys)
+                if (k != uid && FindAgent(k) == null)
+                    stale.Add(k);
+            foreach (var k in stale)
+                _aiMarkerOriginal.Remove(k);
+            var light = agent.lightReal;
+            if (light == null || light.fancyLight == null)
+                throw new InvalidOperationException(
+                    $"agent {uid} has no agent light (lightingType={GC?.lightingType}) — no marker possible");
+            var fl = light.fancyLight;
+            if (on)
+            {
+                if (!_aiMarkerOriginal.ContainsKey(uid))
+                    _aiMarkerOriginal[uid] = fl.Color;
+                // keep the game-driven alpha (floor it so the glow is visible
+                // even on agents whose brightness pass isn't running)
+                float alpha = Mathf.Max(fl.Color.a, 96f / 255f);
+                fl.Color = new Color(0.2f, 1f, 1f, alpha);
+                fl.mustForceUpdate = true; // LightSprite only re-meshes on a change signal
+                if (!light.gameObject.activeSelf)
+                    light.gameObject.SetActive(true);
+                return $"aimarker ON: agent {uid} glow tinted cyan (cosmetic only; uids churn per level — re-mark after level changes)";
+            }
+            Color restored = _aiMarkerOriginal.TryGetValue(uid, out var orig) ? orig : Color.white;
+            _aiMarkerOriginal.Remove(uid);
+            fl.Color = new Color(restored.r, restored.g, restored.b, fl.Color.a); // alpha stays game-driven
+            fl.mustForceUpdate = true;
+            return $"aimarker OFF: agent {uid} glow restored";
+        }
+
+        // ---- goal injection (rogue-gm#3 / missing.md §7-4a) --------------------
+
+        /// <summary>Enable/disable an agent's native brain, with the same
+        /// active-list surgery the game's streaming activation does (the
+        /// NpcSync.SetBrain pattern). While inactive the brain neither decides
+        /// nor processes goals — but PathfindingAI still honors
+        /// SetFinalDestPosition, so a Lua behavior's moveToward keeps working:
+        /// a behavior can take full ownership of movement.</summary>
+        public static bool SetBrainActive(int uid, bool active)
+        {
+            var agent = Require(uid);
+            var gc = GC;
+            if (agent.brain == null || gc == null)
+                throw new InvalidOperationException($"agent {uid} has no brain");
+            if (agent.brain.active == active)
+                return active;
+            agent.brain.active = active;
+            if (active)
+            {
+                if (!gc.activeBrainAgentListIDs.Contains(agent.agentID))
+                {
+                    gc.activeBrainAgentListIDs.Add(agent.agentID);
+                    gc.activeBrainAgentList.Add(agent);
+                }
+            }
+            else
+            {
+                gc.activeBrainAgentListIDs.Remove(agent.agentID);
+                gc.activeBrainAgentList.Remove(agent);
+            }
+            return active;
+        }
+
+        /// <summary>Inject a REAL goal into an NPC's brain, riding the game's
+        /// own goal system — so a directed NPC actually walks over and DOES
+        /// the thing (missing.md §7-4a: `walk_npc` gets re-routed, `say` is
+        /// theater). Three moving parts, all vanilla:
+        ///  1. construct the concrete Goal subclass BrainUpdate's decision
+        ///     loop itself builds (GoalFollow/GoalGuard/... with its target
+        ///     fields set — a bare AddSubgoal2 Goal has no behavior);
+        ///  2. set the BACKING agent state the decision loop reads
+        ///     (following / defaultGoalCode / investigation), else the very
+        ///     next think tick re-decides the goal away;
+        ///  3. install it via BrainUpdate.SwitchGoal — the game's own
+        ///     goal-change entry point (terminates the current goal, wires
+        ///     gc/agent/brain, sets mostRecentGoal).</summary>
+        public static string SetGoal(int uid, string goalName, int targetUid = 0, Vector2? pos = null)
+        {
+            var agent = Require(uid);
+            if (agent.brain == null || agent.brainUpdate == null)
+                throw new InvalidOperationException($"agent {uid} has no brain/brainUpdate");
+            Agent target = targetUid != 0 ? Require(targetUid) : null;
+            Goal goal;
+            string detail;
+            switch (CanonicalGoal(goalName))
+            {
+                case "Follow":
+                {
+                    if (target == null)
+                        throw new ArgumentException("Follow needs a target: setgoal <uid> Follow <targetUid|player>");
+                    agent.SetFollowing(target); // backing state — the brain keeps re-choosing Follow
+                    goal = new GoalFollow { followingAgent = target };
+                    detail = $"following agent {target.UID}";
+                    break;
+                }
+                case "Guard":
+                {
+                    // Guard paths back to startingPosition — point that at the
+                    // given spot (or the target's / the agent's own position).
+                    Vector2 guardPos = pos ?? (target != null ? (Vector2)target.tr.position : (Vector2)agent.tr.position);
+                    agent.startingPosition = guardPos;
+                    SetDefaultGoalRaw(agent, "Guard"); // decision loop picks Guard from defaultGoalCode
+                    goal = new GoalGuard();
+                    detail = $"guarding ({guardPos.x:0.#},{guardPos.y:0.#})";
+                    break;
+                }
+                case "Battle":
+                {
+                    if (target == null)
+                        throw new ArgumentException("Battle needs a target: setgoal <uid> Battle <targetUid|player>");
+                    goal = new GoalBattle { battlingAgent = target };
+                    detail = $"battling agent {target.UID} (persists while the brain still wants the fight — pair with `status <uid> Enraged` for a lasting grudge)";
+                    break;
+                }
+                case "Flee":
+                {
+                    if (target == null)
+                        throw new ArgumentException("Flee needs a target: setgoal <uid> Flee <targetUid|player>");
+                    goal = new GoalFlee { fleeingAgent = target };
+                    detail = $"fleeing agent {target.UID}";
+                    break;
+                }
+                case "Investigate":
+                {
+                    if (pos == null && target == null)
+                        throw new ArgumentException("Investigate needs a position or target: setgoal <uid> Investigate <x,y | targetUid>");
+                    Vector2 p = pos ?? (Vector2)target.tr.position;
+                    agent.investigation = 1; // decision loop keeps Investigate while > 0 (and 1 = walk there + search)
+                    agent.investigatePosition = new Vector3(p.x, p.y, 0f);
+                    goal = new GoalInvestigate { investigatePosition = new Vector3(p.x, p.y, 0f) };
+                    detail = $"investigating ({p.x:0.#},{p.y:0.#})";
+                    break;
+                }
+                case "Wander":
+                    SetDefaultGoalRaw(agent, "Wander");
+                    goal = new GoalWander();
+                    detail = "wandering";
+                    break;
+                case "WanderFar":
+                    SetDefaultGoalRaw(agent, "WanderFar");
+                    goal = new GoalWanderFar();
+                    detail = "wandering far";
+                    break;
+                default:
+                    throw new ArgumentException(
+                        $"unsupported goal '{goalName}' — supported: Follow <target>, Guard [x,y|target], Battle <target>, Flee <target>, Investigate <x,y|target>, Wander, WanderFar");
+            }
+            if (agent.brain.Goals.Count == 0)
+                agent.brain.RecycleStart(); // never-started brain: seed Goals[0] so SwitchGoal has something to replace
+            agent.brainUpdate.SwitchGoal(goal);
+            string warn = agent.brain.active
+                ? ""
+                : " — WARNING brain.active=false: the goal sits idle until the brain is reactivated (Lua takeControl(false), or SetBrainActive)";
+            return $"agent {uid} goal={goal.goalName}: {detail}{warn}";
+        }
+
+        private static readonly string[] SupportedGoals =
+            { "Follow", "Guard", "Battle", "Flee", "Investigate", "Wander", "WanderFar" };
+
+        private static string CanonicalGoal(string goalName)
+        {
+            foreach (var g in SupportedGoals)
+                if (string.Equals(g, goalName, StringComparison.OrdinalIgnoreCase))
+                    return g;
+            return goalName; // falls through to the error in SetGoal
+        }
+
+        /// <summary>agent.SetDefaultGoal early-returns when gc.serverPlayer is
+        /// false — set the same fields it sets, directly.</summary>
+        private static void SetDefaultGoalRaw(Agent agent, string goalName)
+        {
+            agent.defaultGoal = goalName;
+            agent.defaultGoalCode = agent.GetGoalCode(goalName);
+            if (agent.oma != null)
+                agent.oma.defaultGoalCode = (int)agent.defaultGoalCode;
+        }
+
         /// <summary>Recruit an NPC into the local player's party through the
         /// vanilla JoinParty choke point ("that Cop works for you now").</summary>
         public static void Recruit(int uid)

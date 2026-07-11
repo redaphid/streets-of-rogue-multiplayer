@@ -37,6 +37,13 @@ namespace EightPlayers
     //   inventory <uid>               one-shot JSON inventory listing
     //   nearby <x> <y> <radius>       agents + objects within radius (JSON)
     //   walknpc <uid> <x> <y>         EXPERIMENTAL: NPC walks via own pathfinding
+    //   aimarker <uid> <on|off>       cosmetic cyan glow marking AI-driven agents
+    //   setgoal <uid> <goal> [target] inject a REAL brain goal (Follow/Guard/
+    //                                 Battle/Flee/Investigate/Wander/WanderFar;
+    //                                 target = uid|player alias or x,y)
+    //   setmenu <uid> <b64json>       custom NPC talk menu; b64(["opt",...]) ≤6×40;
+    //                                 selections stream as menu_choice events
+    //   clearmenu <uid|all>           restore the vanilla talk menu
     //
     // Code mode (BehaviorEngine.cs — Lua scripts run in-game at frame rate):
     //   behavior <uid|player[:n]> <lua...>     install/replace (script = rest of line)
@@ -460,6 +467,19 @@ namespace EightPlayers
                     GameStateApi.Recruit(GameStateApi.ResolveUid(parts[1]));
                     Out($"agent {parts[1]} recruited into the party");
                     break;
+                case "setmenu":
+                    // setmenu <uid> <b64json> — custom interaction menu on an
+                    // NPC (DialogueMenu.cs); json = ["opt1","opt2",...] (≤6
+                    // options, ≤40 chars each; [] flags the uid with "...").
+                    // Selections stream as menu_choice events on GET /events.
+                    Out(DialogueMenuCore.SetMenu(GameStateApi.ResolveUid(parts[1]), parts[2]));
+                    break;
+                case "clearmenu":
+                    // clearmenu <uid|all> — back to the vanilla talk menu
+                    Out(parts[1] == "all"
+                        ? $"cleared {DialogueMenuCore.ClearAll()} menu(s)"
+                        : DialogueMenuCore.Clear(GameStateApi.ResolveUid(parts[1])));
+                    break;
                 case "inventory":
                     // inventory <uid> — one-shot JSON inventory listing
                     Out(GameStateApi.InventoryJson(GameStateApi.ResolveUid(parts[1])));
@@ -474,6 +494,37 @@ namespace EightPlayers
                     GameStateApi.WalkNpc(GameStateApi.ResolveUid(parts[1]), ParseVec(parts[2], parts[3]));
                     Out($"agent {parts[1]} walking to {parts[2]},{parts[3]} (experimental — brain may override)");
                     break;
+                case "aimarker":
+                {
+                    // aimarker <uid|player> <on|off> — purely cosmetic cyan glow
+                    // on AI-driven agents (zero gameplay impact; rogue-gm#12)
+                    bool markerOn = parts.Length < 3 || parts[2] != "off";
+                    Out(GameStateApi.AiMarker(GameStateApi.ResolveUid(parts[1]), markerOn));
+                    break;
+                }
+                case "setgoal":
+                {
+                    // setgoal <uid|player> <goalName> [<targetUid|player> | <x,y>]
+                    // — inject a REAL goal into the NPC's brain so it DOES the
+                    // thing (rogue-gm#3 / missing.md §7-4a)
+                    int goalTargetUid = 0;
+                    Vector2? goalPos = null;
+                    if (parts.Length > 3)
+                    {
+                        var t = parts[3].Trim();
+                        if (t.Contains(","))
+                        {
+                            var xy = t.Split(',');
+                            goalPos = new Vector2(float.Parse(xy[0]), float.Parse(xy[1]));
+                        }
+                        else
+                        {
+                            goalTargetUid = GameStateApi.ResolveUid(t);
+                        }
+                    }
+                    Out(GameStateApi.SetGoal(GameStateApi.ResolveUid(parts[1]), parts[2], goalTargetUid, goalPos));
+                    break;
+                }
 
                 // ---- code mode: in-game Lua behaviors ------------------------
                 case "behavior":

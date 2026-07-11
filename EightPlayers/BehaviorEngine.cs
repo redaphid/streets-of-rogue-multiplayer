@@ -42,6 +42,16 @@ namespace EightPlayers
     //                          tiles (type/name substring, default 5 dmg);
     //                          returns its uid or nil
     //   status(effect,on)      status effect on SELF only
+    //   setGoal(name,target?)  inject a REAL brain goal on SELF (Follow/Guard/
+    //                          Battle/Flee/Investigate/Wander/WanderFar;
+    //                          target = uid for the agent-typed goals);
+    //                          returns the reply string ("error: ..." on failure)
+    //   takeControl(on)        on=true disables the native brain (the
+    //                          NpcSync.SetBrain list surgery) so THIS behavior
+    //                          fully owns movement — moveToward still works
+    //                          while brain.active=false (PathfindingAI honors
+    //                          finalDestPosition without the brain); on=false
+    //                          hands the body back to the game's AI
     //   mem                    persistent table (survives ticks)
     //   time()                 -> game seconds (Time.time)
     //
@@ -434,6 +444,26 @@ namespace EightPlayers
                 if (b.Agent == null)
                     return false;
                 try { GameStateApi.SetStatus(b.Uid, effect, on); return true; } // SELF only
+                catch { return false; }
+            }));
+
+            Reg("setGoal", (Func<string, DynValue, DynValue>)((goalName, target) =>
+            {
+                // SELF only — a behavior directs its own body, not others'.
+                if (b.Agent == null)
+                    return DynValue.Nil;
+                int targetUid = target != null && target.Type == DataType.Number ? (int)target.Number : 0;
+                try { return DynValue.NewString(GameStateApi.SetGoal(b.Uid, goalName, targetUid)); }
+                catch (Exception e) { return DynValue.NewString("error: " + e.Message); }
+            }));
+
+            Reg("takeControl", (Func<bool, bool>)(on =>
+            {
+                // on=true: brain off, this behavior owns movement (moveToward
+                // keeps working — PathfindingAI runs without the brain).
+                if (b.Agent == null)
+                    return false;
+                try { GameStateApi.SetBrainActive(b.Uid, !on); return true; }
                 catch { return false; }
             }));
 
