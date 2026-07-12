@@ -238,6 +238,18 @@ namespace EightPlayers
             _quests.Remove(e.Id);
         }
 
+        /// <summary>Cancel: the quest stopped making sense (target despawned,
+        /// off-screen protect death) — tear it down and tell the event stream
+        /// status "cancelled" so the owner can clean up its state, WITHOUT the
+        /// complete/failed story weight. Never a "complete": the 2026-07-11
+        /// playtest had a despawned cart report quest COMPLETE.</summary>
+        private static void Cancel(Entry e, string reason)
+        {
+            Broadcast(e, "cancelled", reason);
+            Teardown(e);
+            _quests.Remove(e.Id);
+        }
+
         private static void Teardown(Entry e)
         {
             if (e.HasMarker)
@@ -281,8 +293,8 @@ namespace EightPlayers
                     ["event"] = "quest_complete",
                     ["id"] = e.Id,
                     ["type"] = StoryQuestCore.TypeName(e.Type),
-                    ["status"] = status,          // "complete" | "failed"
-                    ["reason"] = reason,          // "kill" | "reach" | "interact" | "forced" | "target_died"
+                    ["status"] = status,          // "complete" | "failed" | "cancelled"
+                    ["reason"] = reason,          // "kill" | "reach" | "interact" | "forced" | "target_died" | "target_gone" | "target_died_offscreen"
                     ["target"] = e.HasEntity ? (JToken)e.TargetUid : null,
                 });
             }
@@ -321,17 +333,26 @@ namespace EightPlayers
 
         private static void CheckOne(Entry e)
         {
-            // Entity target that despawned → the goal is gone; drop quietly.
             Agent agent = e.TargetUid != 0 ? GameStateApi.FindAgent(e.TargetUid) : null;
             PlayfieldObject obj = agent != null ? (PlayfieldObject)agent
                 : (e.TargetUid != 0 ? GameStateApi.FindObjectReal(e.TargetUid) : null);
+
+            // Remember where the target last stood so a vanish/death can still be
+            // proximity-judged against a real position, not a stale anchor.
+            if (obj != null && obj.tr != null)
+                e.Pos = obj.tr.position;
+
             if (e.HasEntity && obj == null && agent == null)
             {
-                // target vanished — for protect that's a failure; else silent drop
-                if (e.Type == StoryQuestType.Protect)
+                // Target VANISHED (despawn/cleanup — nobody "did" anything).
+                // Never a completion. Protect only fails if a player was close
+                // enough to witness whatever removed it; everything else — and
+                // an unwitnessed protect — cancels.
+                if (e.Type == StoryQuestType.Protect &&
+                    StoryQuestCore.ProtectFailureIsWitnessed(ClosestPlayerDistance(e.Pos)))
                     Complete(e, false, "target_died");
                 else
-                    Complete(e, true, "target_gone");
+                    Cancel(e, "target_gone");
                 return;
             }
 
@@ -343,7 +364,14 @@ namespace EightPlayers
                     break;
                 case StoryQuestType.Protect:
                     if (agent != null && agent.dead && !agent.resurrect && !agent.teleporting)
-                        Complete(e, false, "target_died");
+                    {
+                        // A protect failure the player never saw is noise, not
+                        // story — fail only when witnessed, else cancel quietly.
+                        if (StoryQuestCore.ProtectFailureIsWitnessed(ClosestPlayerDistance(TargetPos(e, obj))))
+                            Complete(e, false, "target_died");
+                        else
+                            Cancel(e, "target_died_offscreen");
+                    }
                     break;
                 case StoryQuestType.Reach:
                 case StoryQuestType.Interact:

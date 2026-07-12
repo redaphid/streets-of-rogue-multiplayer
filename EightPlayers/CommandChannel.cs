@@ -478,8 +478,18 @@ namespace EightPlayers
                 case "spawnobject":
                 {
                     // spawnobject <name> <x> <y>
-                    var obj = GameStateApi.SpawnObject(parts[1], ParseVec(parts[2], parts[3]));
-                    Out(obj != null ? $"spawned object uid={obj.UID} '{obj.objectName}'" : "spawn returned null");
+                    var spawnPos = ParseVec(parts[2], parts[3]);
+                    var obj = GameStateApi.SpawnObject(parts[1], spawnPos);
+                    if (obj == null) { Out("spawn returned null"); break; }
+                    // The UID read straight off the returned instance can pre-date
+                    // its setup (pooled objects re-register), so a quest/label on
+                    // that uid may not resolve — the 2026-07-11 playtest hit
+                    // exactly this. Prefer the SETTLED instance objectRealList
+                    // holds at the spawn point (same UID-drift rationale as
+                    // FindObjectAt itself); fall back to the raw instance.
+                    var settled = GameStateApi.FindObjectAt(spawnPos, obj.objectName, 1.5f) ?? obj;
+                    var drift = settled.UID != obj.UID ? $" (settled from pre-setup uid {obj.UID})" : "";
+                    Out($"spawned object uid={settled.UID} '{settled.objectName}'{drift}");
                     break;
                 }
                 case "destroywall":

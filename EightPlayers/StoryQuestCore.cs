@@ -43,6 +43,19 @@ namespace EightPlayers
         internal const float ReachRadius = 2.5f;
         internal const float InteractRadius = 1.4f;
 
+        /// <summary>How close a player must be to a protect target's death for
+        /// the quest to report FAILURE. A death the player was around to see is
+        /// a real story beat; one across the map is noise — the 2026-07-11
+        /// playtest flashed "QUEST FAILED" for ambient chaos the player never
+        /// witnessed, which reads as a bug. Off-screen deaths cancel silently.</summary>
+        internal const float ProtectWitnessRadius = 20f;
+
+        /// <summary>Was a protect target's death witnessed (close enough to a
+        /// live player to be a fair failure)? closestPlayerDist &lt; 0 means no
+        /// live player could be measured — treat as unwitnessed.</summary>
+        internal static bool ProtectFailureIsWitnessed(float closestPlayerDist) =>
+            closestPlayerDist >= 0f && closestPlayerDist <= ProtectWitnessRadius;
+
         /// <summary>Parse a TYPE token (case-insensitive) to the enum; throws a
         /// friendly error listing the choices.</summary>
         internal static StoryQuestType ParseType(string type)

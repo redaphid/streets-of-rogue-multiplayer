@@ -95,4 +95,30 @@ public class StoryQuestTests
         Assert.Equal("EPStory", StoryQuestCore.NativeQuestType);
         Assert.NotEqual("Kill", StoryQuestCore.NativeQuestType);
     }
+
+    // ---- protect witness gate (rogue-gm 2026-07-11 playtest hardening) ----
+    // A protect target dying OFF-SCREEN must not flash "QUEST FAILED" at a
+    // player who saw nothing; only a witnessed death is a fair failure.
+
+    [Fact]
+    public void ProtectFailureRequiresAPlayerCloseEnoughToWitness()
+    {
+        Assert.True(StoryQuestCore.ProtectFailureIsWitnessed(0f));
+        Assert.True(StoryQuestCore.ProtectFailureIsWitnessed(StoryQuestCore.ProtectWitnessRadius));
+        Assert.False(StoryQuestCore.ProtectFailureIsWitnessed(StoryQuestCore.ProtectWitnessRadius + 0.1f));
+    }
+
+    [Fact]
+    public void ProtectFailureUnwitnessedWhenNoLivePlayerMeasurable()
+    {
+        // -1 is the "no live player" sentinel from ClosestPlayerDistance
+        Assert.False(StoryQuestCore.ProtectFailureIsWitnessed(-1f));
+    }
+
+    [Fact]
+    public void ProtectWitnessRadiusCoversAScreenNotTheMap()
+    {
+        // sanity-pin the tuning: roughly one screen of tiles, nowhere near map-wide
+        Assert.InRange(StoryQuestCore.ProtectWitnessRadius, 10f, 40f);
+    }
 }
