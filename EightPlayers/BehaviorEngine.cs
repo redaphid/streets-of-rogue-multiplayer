@@ -90,6 +90,7 @@ namespace EightPlayers
             public bool Enabled = true;
             public string LastLoggedError;
             public float LastSay = float.NegativeInfinity;
+            public string LastLabel; // dedupe: skip marker rebuild when text unchanged
             public Agent Agent; // resolved fresh each engine tick
         }
 
@@ -468,6 +469,39 @@ namespace EightPlayers
             }));
 
             Reg("time", (Func<double>)(() => (double)Time.time));
+
+            Reg("ignite", (Func<double, double, bool>)((x, y) =>
+            {
+                // Ground-mark telegraphs (boss strike shapes) — same path as
+                // the ignite verb. Fire IS the "floor glows" tell.
+                try { GameStateApi.Ignite(new Vector2((float)x, (float)y)); return true; }
+                catch { return false; }
+            }));
+
+            Reg("label", (Func<string, bool>)(text =>
+            {
+                // SELF only — a behavior labels its own body (hp bar, ⚠ /
+                // STAGGERED state flags). Empty/nil-ish text clears. Apply()
+                // rebuilds the quest marker, so dedupe unchanged text here:
+                // callers may refresh every tick, markers churn only on change.
+                if (b.Agent == null)
+                    return false;
+                try
+                {
+                    var t = text ?? "";
+                    if (t.Trim().Length == 0)
+                    {
+                        if (b.LastLabel != null) { Labels.Clear(b.Uid); b.LastLabel = null; }
+                        return true;
+                    }
+                    if (t == b.LastLabel)
+                        return true;
+                    Labels.Apply(b.Uid, t);
+                    b.LastLabel = t;
+                    return true;
+                }
+                catch { return false; }
+            }));
 
             b.ApiTable = DynValue.NewTable(api);
         }
