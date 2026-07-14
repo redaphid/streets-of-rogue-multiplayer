@@ -250,19 +250,42 @@ namespace EightPlayers
             catch (Exception e) { return Err(e); }
         }
 
-        /// <summary>Invoke a method by name with a JSON-array of args coerced to the
-        /// parameter types. Returns the result (JSON scalar or handle).</summary>
+        /// <summary>Invoke a method with a JSON-array of args coerced to the
+        /// parameter types. Returns the result (JSON scalar or handle).
+        /// <para>The method name may be a DOTTED PATH: everything up to the last
+        /// '.' navigates (fields/props/[i]/[key]) to the receiver, and the final
+        /// segment is the method invoked on it. This makes every member method
+        /// reachable — notably collection mutation the flat form couldn't express,
+        /// e.g. <c>call gc challenges.Add ["SpookySwamp"]</c>,
+        /// <c>call gc challenges.Remove ["X"]</c>, <c>call gc challenges.Clear</c>,
+        /// or <c>call player inventory.AddItem ["Shotgun",1]</c>.</para></summary>
         public static string Call(string targetSpec, string method, string jsonArgs)
         {
             try
             {
                 var t = ResolveTarget(targetSpec);
+
+                // A dotted method resolves against a NAVIGATED receiver: split off
+                // the last segment as the method name and walk the rest as a path.
+                object recvObj = t.Obj;
+                Type recvType = t.Type;
+                string methodName = method;
+                int dot = method.LastIndexOf('.');
+                if (dot >= 0)
+                {
+                    string pathPart = method.Substring(0, dot);
+                    methodName = method.Substring(dot + 1);
+                    var (v, vt) = Navigate(t.Obj, t.Type, pathPart);
+                    if (v == null) throw new ArgumentException($"'{pathPart}' navigated to null");
+                    recvObj = v; recvType = vt;
+                }
+
                 JArray args = string.IsNullOrWhiteSpace(jsonArgs) ? new JArray() : JArray.Parse(jsonArgs);
-                var candidates = t.Type.GetMethods(AllMembers)
-                    .Where(m => m.Name == method && m.GetParameters().Length == args.Count)
+                var candidates = recvType.GetMethods(AllMembers)
+                    .Where(m => m.Name == methodName && m.GetParameters().Length == args.Count)
                     .ToList();
                 if (candidates.Count == 0)
-                    throw new ArgumentException($"no method '{method}' with {args.Count} arg(s) on {t.Type.Name}");
+                    throw new ArgumentException($"no method '{methodName}' with {args.Count} arg(s) on {recvType.Name}");
                 Exception last = null;
                 foreach (var m in candidates)
                 {
@@ -272,7 +295,7 @@ namespace EightPlayers
                         var coerced = new object[ps.Length];
                         for (int i = 0; i < ps.Length; i++)
                             coerced[i] = CoerceToken(args[i], ps[i].ParameterType);
-                        object result = m.Invoke(m.IsStatic ? null : t.Obj, coerced);
+                        object result = m.Invoke(m.IsStatic ? null : recvObj, coerced);
                         if (m.ReturnType == typeof(void)) return "void (ok)";
                         return Cap(EncodeResult(result));
                     }
@@ -677,6 +700,19 @@ namespace EightPlayers
             if (t.IsEnum) return Enum.Parse(t, raw, ignoreCase: true);
             if (t == typeof(Vector2)) { var p = SplitFloats(raw, 2); return new Vector2(p[0], p[1]); }
             if (t == typeof(Vector3)) { var p = SplitFloats(raw, 3); return new Vector3(p[0], p[1], p[2]); }
+            // JSON fallback: a value that LOOKS like JSON (array/object) is
+            // deserialized straight to the member type via Json.NET — this is how
+            // collections/dictionaries/complex members get assigned, e.g.
+            // `set gc challenges ["A","B"]` builds a List<string>. Gated on the
+            // '[' / '{' lead so scalars, enums and bare strings are untouched.
+            // (Prefer `call <t> <path>.Add [..]` to APPEND to a live list without
+            // swapping the reference the game already holds.)
+            string jsonish = raw?.TrimStart();
+            if (jsonish != null && jsonish.Length > 0 && (jsonish[0] == '[' || jsonish[0] == '{'))
+            {
+                try { return JToken.Parse(raw).ToObject(t); }
+                catch { /* not valid JSON for this type — fall through */ }
+            }
             var nullable = Nullable.GetUnderlyingType(t);
             if (nullable != null) return string.IsNullOrEmpty(raw) ? null : CoerceString(raw, nullable);
             return Convert.ChangeType(raw, t, CultureInfo.InvariantCulture);
