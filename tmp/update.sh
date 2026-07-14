@@ -1,1 +1,1 @@
-cp /home/redaphid/Projects/streets-of-rogue-multiplayer/EightPlayers/bin/Release/net472/EightPlayers.dll '/home/redaphid/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Streets of Rogue/'
+cp /home/redaphid/Projects/streets-of-rogue/multiplayer/EightPlayers/bin/Release/net472/EightPlayers.dll '/home/redaphid/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Streets of Rogue/'

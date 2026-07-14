@@ -1,6 +1,6 @@
 # RogueLibs — lessons and the patch treasure map
 
-**What this covers / when to read it.** RogueLibs (fork at `~/Projects/RogueLibs`, upstream discontinued Feb 2024, last release v3.6.9) was the community modding framework for Streets of Rogue. We keep the fork as a **read-only reference** — we borrow its techniques, we do **not** depend on it or port mods to it. Read this when you need to know *where* the game can be hooked for a feature (the treasure map below), how to inject tk2d sprites correctly, or how to touch unlock save data without corrupting saves. Paths like `RogueLibsCore/...` are relative to `~/Projects/RogueLibs/`; game paths are relative to `decompiled/` in this repo's main checkout.
+**What this covers / when to read it.** RogueLibs (fork at `~/Projects/streets-of-rogue/RogueLibs`, upstream discontinued Feb 2024, last release v3.6.9) was the community modding framework for Streets of Rogue. We keep the fork as a **read-only reference** — we borrow its techniques, we do **not** depend on it or port mods to it. Read this when you need to know *where* the game can be hooked for a feature (the treasure map below), how to inject tk2d sprites correctly, or how to touch unlock save data without corrupting saves. Paths like `RogueLibsCore/...` are relative to `~/Projects/streets-of-rogue/RogueLibs/`; game paths are relative to `decompiled/` in this repo's main checkout.
 
 ## The Cecil field-injection trick (and why Harmony can't do it)
 

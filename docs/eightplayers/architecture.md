@@ -107,8 +107,8 @@ The data-driven generalization of WizardMod lives in the separate
 
 | Repo | Role |
 |---|---|
-| `~/Projects/streets-of-rogue-multiplayer` | This repo: the Unity-side mods, the command channel, the trace oracle, and `decompiled/` (gitignored, main checkout only) |
-| `~/Projects/rogue-gm` | Live AI game-master; MCP bridge (`GameHost`) onto this repo's command channel. Primary consumer of the verb + events contract |
-| `~/Projects/rogue-brain` | Deterministic TypeScript rules sim; reads `decompiled/` for rules and consumes `SOR_TRACE` output as its parity oracle (see `docs/ecs-migration-plan.md` for the two-repo split) |
+| `~/Projects/streets-of-rogue/multiplayer` | This repo: the Unity-side mods, the command channel, the trace oracle, and `decompiled/` (gitignored, main checkout only) |
+| `~/Projects/streets-of-rogue/gm` | Live AI game-master; MCP bridge (`GameHost`) onto this repo's command channel. Primary consumer of the verb + events contract |
+| `~/Projects/streets-of-rogue/brain` | Deterministic TypeScript rules sim; reads `decompiled/` for rules and consumes `SOR_TRACE` output as its parity oracle (see `docs/ecs-migration-plan.md` for the two-repo split) |
 | `~/Projects/streets-of-rogue/character-creator` | Data-driven custom characters (`character.json`), generalized from WizardMod; the best-documented project — its docs style is the model for this tree |
-| `~/Projects/RogueLibs` | Fork of the discontinued community modding framework. **Read-only reference** — do not port to it; borrow its techniques (see [../modding/roguelibs-lessons.md](../modding/roguelibs-lessons.md)) |
+| `~/Projects/streets-of-rogue/RogueLibs` | Fork of the discontinued community modding framework. **Read-only reference** — do not port to it; borrow its techniques (see [../modding/roguelibs-lessons.md](../modding/roguelibs-lessons.md)) |

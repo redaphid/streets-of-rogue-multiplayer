@@ -4,7 +4,7 @@ Start here. This tree documents the game's internals (from `decompiled/`), the
 EightPlayers/WizardMod plugins, and how to build new mods.
 
 > `decompiled/` (2,937 C# files, the full decompiled game) is **gitignored** and
-> exists only in the main checkout at `~/Projects/streets-of-rogue-multiplayer/`
+> exists only in the main checkout at `~/Projects/streets-of-rogue/multiplayer/`
 > — not in worktrees or clones. All `decompiled/...` references assume it.
 
 ## Start here — task → doc

@@ -7,7 +7,7 @@ single dispatch point) and `EightPlayers/HttpChannel.cs`. The verb tables in
 `docs/debug-harness.md` are a *subset* of this list — when they disagree, this
 doc and the source win.
 
-**Primary consumer:** `~/Projects/rogue-gm` (the live AI game-master) drives its
+**Primary consumer:** `~/Projects/streets-of-rogue/gm` (the live AI game-master) drives its
 whole observe → decide → act loop through this channel; many verbs exist because
 of specific rogue-gm issues (cited inline in the source, e.g. `label` = #17,
 `quest` = #22/#7, `setgoal` = #3).

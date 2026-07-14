@@ -2,7 +2,7 @@
 
 **What this covers / when to read it:** the game's skeleton — the `GameController` singleton and its managers, the per-floor scene-reload model, session/save/unlock persistence, spawning and object pooling, Rewired input, and the Mirror netcode authority model. Read this first before writing any mod code that touches live game state; every other game-internals doc assumes this one. For NPCs/combat see `agents-ai-combat.md`; for items/effects/unlocks-as-content see `content-systems.md`; for level generation, objects, and menus see `world-and-ui.md`; for sprites/audio/text see `sprites-audio-localization.md`.
 
-> All `decompiled/...` paths refer to the decompiled game source, which is **gitignored** and exists only in the main checkout at `~/Projects/streets-of-rogue-multiplayer/decompiled/` (652 top-level `.cs` files; 2,937 in the whole tree). Line numbers are anchors from the current decompile, not exact contracts.
+> All `decompiled/...` paths refer to the decompiled game source, which is **gitignored** and exists only in the main checkout at `~/Projects/streets-of-rogue/multiplayer/decompiled/` (652 top-level `.cs` files; 2,937 in the whole tree). Line numbers are anchors from the current decompile, not exact contracts.
 
 The architecture in one sentence: **one god-singleton (`GameController`) + string-keyed switch statements + a full scene reload per floor + Mirror netcode where the host is authoritative.**
 

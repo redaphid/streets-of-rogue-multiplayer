@@ -2,7 +2,7 @@
 
 **What this covers / when to read it:** how a floor gets generated (LoadLevel, themes, chunks, the tile grid), how interactive world objects work (the `ObjectReal` hierarchy and its virtual-method contract), how object types are registered by string name, and how the menu systems (`MainGUI`, `ScrollingMenu`, `CharacterSelect`) are built and enumerate content. Read it when your mod places things in the world, adds/changes an interactive object, or touches menus/portraits. Prerequisite: `architecture.md` (the gc singleton, scene reloads, pooling, host authority). Sprites/audio/text rendering details live in `sprites-audio-localization.md`; NPC behavior in `agents-ai-combat.md`; items/effects/unlocks in `content-systems.md`.
 
-> All `decompiled/...` paths refer to the decompiled game source, which is **gitignored** and exists only in the main checkout at `~/Projects/streets-of-rogue-multiplayer/decompiled/`. Line numbers are anchors, not contracts.
+> All `decompiled/...` paths refer to the decompiled game source, which is **gitignored** and exists only in the main checkout at `~/Projects/streets-of-rogue/multiplayer/decompiled/`. Line numbers are anchors, not contracts.
 
 ---
 
