@@ -107,6 +107,7 @@ namespace EightPlayers
             Labels.Tick();
             StoryQuests.Tick();
             GameStateApi.PinTick();
+            AiControl.Tick(); // §8b: wipe control/menu flags on level change + reap dead bodies
             LoadWatchdog.Tick();
             Tracing.Trace.Tick();
         }

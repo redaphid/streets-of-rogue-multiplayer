@@ -534,9 +534,13 @@ namespace EightPlayers
                 }
                     break;
                 case "recruit":
-                    GameStateApi.Recruit(GameStateApi.ResolveUid(parts[1]));
+                {
+                    int recUid = GameStateApi.ResolveUid(parts[1]);
+                    GameStateApi.Recruit(recUid);
+                    AiControl.Mark(recUid); // §8a: a portrayed ally speaks only our lines, not stock barks
                     Out($"agent {parts[1]} recruited into the party");
                     break;
+                }
                 case "setmenu":
                     // setmenu <uid> <b64json> — custom interaction menu on an
                     // NPC (DialogueMenu.cs); json = array of options, each a
@@ -644,10 +648,26 @@ namespace EightPlayers
                     break;
                 case "aimarker":
                 {
-                    // aimarker <uid|player> <on|off> — purely cosmetic cyan glow
-                    // on AI-driven agents (zero gameplay impact; rogue-gm#12)
+                    // aimarker <uid|player> <on|off> — cosmetic cyan glow on
+                    // AI-driven agents (rogue-gm#12). ALSO flags the agent as
+                    // mod-controlled (§8a) so its stock chatter is muted: the
+                    // glow and the mute both mark "this body is ours".
                     bool markerOn = parts.Length < 3 || parts[2] != "off";
-                    Out(GameStateApi.AiMarker(GameStateApi.ResolveUid(parts[1]), markerOn));
+                    int amUid = GameStateApi.ResolveUid(parts[1]);
+                    if (markerOn) AiControl.Mark(amUid); else AiControl.Unmark(amUid);
+                    Out(GameStateApi.AiMarker(amUid, markerOn));
+                    break;
+                }
+                case "aicontrol":
+                {
+                    // aicontrol <uid|player> <on|off> — flag a body as
+                    // mod-controlled WITHOUT the cosmetic glow (§8a): mutes its
+                    // native stock chatter so it speaks only via `say`. Cleared
+                    // automatically on the body's death or a level change.
+                    bool ctrlOn = parts.Length < 3 || parts[2] != "off";
+                    int acUid = GameStateApi.ResolveUid(parts[1]);
+                    if (ctrlOn) AiControl.Mark(acUid); else AiControl.Unmark(acUid);
+                    Out($"agent {acUid} aicontrol {(ctrlOn ? "on (stock chatter muted)" : "off")}");
                     break;
                 }
                 case "pin":
@@ -704,6 +724,7 @@ namespace EightPlayers
                     if (bp.Length < 3) { Out("usage: behavior <uid|player[:n]> <lua...>"); break; }
                     int buid = GameStateApi.ResolveUid(bp[1]);
                     var err = BehaviorEngine.Install(buid, bp[2], 10f);
+                    if (err == null) AiControl.Mark(buid); // §8a: behavior-driven body speaks only our lines
                     Out(err ?? $"behavior installed on agent {buid} (10Hz)");
                     break;
                 }
@@ -717,6 +738,7 @@ namespace EightPlayers
                     float hz = bp.Length > 3 ? float.Parse(bp[3]) : 10f;
                     int buid = GameStateApi.ResolveUid(bp[1]);
                     var err = BehaviorEngine.Install(buid, lua, hz);
+                    if (err == null) AiControl.Mark(buid); // §8a: behavior-driven body speaks only our lines
                     Out(err ?? $"behavior installed on agent {buid} ({Encoding.UTF8.GetByteCount(lua)} bytes, {hz:0.#}Hz)");
                     break;
                 }
@@ -727,9 +749,13 @@ namespace EightPlayers
                     if (parts.Length > 1 && parts[1] == "all")
                         Out($"cleared {BehaviorEngine.ClearAll()} behavior(s)");
                     else
-                        Out(BehaviorEngine.Clear(GameStateApi.ResolveUid(parts[1]))
+                    {
+                        int cbUid = GameStateApi.ResolveUid(parts[1]);
+                        AiControl.Unmark(cbUid); // §8a: hands the body back to its stock chatter
+                        Out(BehaviorEngine.Clear(cbUid)
                             ? $"behavior cleared on agent {parts[1]}"
                             : $"no behavior on agent {parts[1]}");
+                    }
                     break;
 
                 // ---- general reflection surface -----------------------------

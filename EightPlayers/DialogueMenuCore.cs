@@ -215,6 +215,10 @@ namespace EightPlayers
         /// interaction — buttons AND dialogue — is externally authored).</summary>
         internal static bool IsFlagged(int uid) => _menus.ContainsKey(uid);
 
+        /// <summary>Snapshot of every uid with a menu flag installed, so the
+        /// AiControl reaper can drop flags whose body died/despawned (§8b).</summary>
+        internal static List<int> FlaggedUids() => new List<int>(_menus.Keys);
+
         /// <summary>The marker-prefixed button ids for the CURRENT tree level
         /// of a flagged uid, or null if the uid has no custom menu (vanilla
         /// buttons untouched).</summary>

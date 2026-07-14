@@ -41,9 +41,19 @@ with the `EPCMD` prefix. Latency ≈ 0.5–1 s per round trip.
   - `{"event":"hello","port":N}` — sent immediately on subscribe.
   - `{"event":"level_loaded","level":N,"seed":N}` — load-complete transition or
     new (seed, level) pair.
-  - `{"event":"agent_died","uid","name","type","isPlayer"}` — alive→dead diff,
-    checked every 0.25 s while subscribed. Baselines are primed on first
-    subscribe, so deaths that happened while nobody listened are NOT replayed.
+  - `{"event":"agent_died","uid","name","type","isPlayer","killerUid"}` —
+    alive→dead diff, checked every 0.25 s while subscribed. Baselines are primed
+    on first subscribe, so deaths that happened while nobody listened are NOT
+    replayed. `killerUid` is the finishing agent (`killedByAgent` →
+    `killedByAgentIndirect` → `lastHitByAgent`), or null if unknown.
+  - `{"event":"agent_killed","uid","killerUid","killerName","killerIsPlayer"}` —
+    the same death, but only when a killer is known: kill ATTRIBUTION the GM can
+    key on ("who killed whom" — was it the player, a summon, a ghost?). ops-log §1.
+  - `{"event":"status_applied","target","effect","isPlayer"}` /
+    `{"event":"status_expired","target","effect","isPlayer"}` — a status-effect
+    name appeared on / left a PLAYER or mod-CONTROLLED body (diffed every
+    0.25 s). Makes transient effects (GIANT, Fast, Enraged) visible in the moment
+    AND remembered after they expire, instead of leaving zero trace. ops-log §7b.
   - `{"event":"player_hp","uid","player","hp","hpMax","delta"}` — player health
     swings ≥ 3 hp.
   - `{"event":"menu_choice",...}` — pushed by DialogueMenu when a player presses
@@ -110,11 +120,12 @@ blocks until its verb completes. Multiple in-flight requests are fine.
 | `drop <uid> <item>` | Drop inventory item |
 | `equip <uid> <weapon>` | Equip a weapon from inventory |
 | `tp <uid> <x> <y>` | Teleport an agent |
-| `recruit <uid>` | Recruit the NPC into the player's party |
+| `recruit <uid>` | Recruit the NPC into the player's party (also flags it AI-controlled → stock chatter muted, §8a) |
 | `brainactive <uid> <on\|off>` | Wake/sleep an agent's brain (active-brain-list surgery) |
 | `setgoal <uid> <goal> [<targetUid\|player> \| <x,y> \| <x> <y>]` | Inject a REAL brain goal: Follow/Guard/Battle/Flee/Investigate/Wander/WanderFar |
 | `pin <uid> <x> <y>` / `unpin <uid\|all>` | Per-frame position lock overriding all movement (staged beats); unpin releases |
-| `aimarker <uid> <on\|off>` | Cosmetic cyan glow marking AI-driven agents |
+| `aimarker <uid> <on\|off>` | Cosmetic cyan glow marking AI-driven agents; ALSO flags the body AI-controlled → mutes its native stock chatter (§8a) |
+| `aicontrol <uid> <on\|off>` | Flag a body mod-controlled WITHOUT the glow: mutes its native stock chatter so it speaks only via `say` (§8a). Auto-cleared on the body's death or a level change (§8b) |
 | `walknpc <uid> <x> <y>` | EXPERIMENTAL: NPC walks via own pathfinding (brain may re-route) |
 | `pickup <uid> <x> <y> [itemName]` | Agent picks up a ground item at position |
 
@@ -150,10 +161,10 @@ blocks until its verb completes. Multiple in-flight requests are fine.
 ### Code mode (Lua, BehaviorEngine)
 | Verb | Effect |
 |---|---|
-| `behavior <uid\|player[:n]> <lua...>` | Install/replace a per-agent Lua script (rest of line — single-line scripts only) |
-| `behaviorb64 <uid> <base64> [hz]` | Preferred form: newlines survive; default 10 Hz |
+| `behavior <uid\|player[:n]> <lua...>` | Install/replace a per-agent Lua script (rest of line — single-line scripts only); flags the body AI-controlled → stock chatter muted (§8a) |
+| `behaviorb64 <uid> <base64> [hz]` | Preferred form: newlines survive; default 10 Hz; also flags AI-controlled |
 | `behaviors` | List `{uid,hz,errors,enabled,bytes}` |
-| `clearbehavior <uid\|all>` | Remove behavior(s) |
+| `clearbehavior <uid\|all>` | Remove behavior(s); clears the AI-controlled flag (restores stock chatter) |
 
 Scripts define `tick(api)`; see `EightPlayers/BehaviorEngine.cs` for the API
 (`self/nearby/player/dist/moveToward/teleport/say/hp/attackNearest/status/setGoal/takeControl/time/ignite/label/mem`)

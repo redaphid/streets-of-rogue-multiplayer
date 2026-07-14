@@ -228,6 +228,24 @@ Dispatch chain:
 
 NPCs interact autonomously via `GoalInteract.cs`.
 
+### 6.1 Muting stock chatter on controlled bodies (mod §8a)
+
+The game fires ambient/battle/greeting barks through `Agent.SayDialogue(...)` on
+its **own AI/timer**, sourcing lines from a shared **type-keyed dialogue DB** —
+NOT the per-agent `myDialogueList` (that is empty on a mod-spawned body, and
+`hasTalkText=false`, yet it still barks). There is **no per-agent mute boolean**
+(searched mute/silent/operate/idle/chatter/speech/talk/bubble — none). So a body
+the mod controls (spawned daemon, GM-fed avatar, recruited ally, behavior-driven
+NPC) would still say its type's canned lines between the words we feed it.
+
+Fix: `DialogueMenu_Mute_Patch` prefixes the single `SayDialogue(bool,string,
+bool,uint)` overload (all overloads funnel into it) and returns `""` (vanilla
+"said nothing") when the uid is menu-flagged (`DialogueMenuCore.IsFlagged`) OR
+mod-controlled (`AiControl.IsControlled`). Control is flagged by `aimarker on` /
+`aicontrol on` / `recruit` / `behavior[b64]`, and cleared on the body's death or
+a level change (`AiControl.Tick`). The external `say`/`reply` path (`Agent.Say`)
+is untouched — controlled bodies speak ONLY the words we give them.
+
 ---
 
 ## 7. Gotcha checklist (memorize these)

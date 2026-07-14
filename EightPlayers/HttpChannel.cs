@@ -219,6 +219,11 @@ namespace EightPlayers
         private static int _prevSeed, _prevLevel;
         private static readonly Dictionary<int, bool> _agentDead = new Dictionary<int, bool>();
         private static readonly Dictionary<int, float> _playerHp = new Dictionary<int, float>();
+        // Per-uid active status-effect name set, for players + mod-controlled
+        // bodies, so transient effects (GIANT, Fast, Enraged...) push
+        // status_applied / status_expired instead of vanishing without a trace
+        // (ops-log §7b). Bounded: only watched uids, only effect-name strings.
+        private static readonly Dictionary<int, HashSet<string>> _statuses = new Dictionary<int, HashSet<string>>();
 
         internal static void Tick()
         {
@@ -263,6 +268,7 @@ namespace EightPlayers
                 _prevLevel = level;
                 _agentDead.Clear();
                 _playerHp.Clear();
+                _statuses.Clear();
                 if (loaded)
                     PrimeAgents(gc);
                 _eventsPrimed = true;
@@ -280,6 +286,7 @@ namespace EightPlayers
                 });
                 _agentDead.Clear(); // uids churn per level
                 _playerHp.Clear();
+                _statuses.Clear();
                 if (loaded)
                     PrimeAgents(gc);
             }
@@ -297,6 +304,16 @@ namespace EightPlayers
                 _agentDead.TryGetValue(a.UID, out var wasDead); // false if new
                 if (a.dead && !wasDead && _agentDead.ContainsKey(a.UID))
                 {
+                    // Kill attribution (ops-log §1): who killed whom. The game
+                    // records the finishing agent on killedByAgent (indirect =
+                    // e.g. their explosion), and the last damager on
+                    // lastHitByAgent — try in that order. Explicit != null checks
+                    // (not ??) so Unity's overloaded null for destroyed objects
+                    // is honored.
+                    Agent killer = a.killedByAgent != null ? a.killedByAgent
+                        : (a.killedByAgentIndirect != null ? a.killedByAgentIndirect
+                        : (a.lastHitByAgent != null ? a.lastHitByAgent : null));
+                    JToken killerUid = killer != null ? (JToken)killer.UID : JValue.CreateNull();
                     Broadcast(new JObject
                     {
                         ["event"] = "agent_died",
@@ -304,7 +321,19 @@ namespace EightPlayers
                         ["name"] = string.IsNullOrEmpty(a.agentRealName) ? a.agentName : a.agentRealName,
                         ["type"] = a.agentName,
                         ["isPlayer"] = a.isPlayer,
+                        ["killerUid"] = killerUid,
                     });
+                    // Distinct attribution frame the GM can key on (only when a
+                    // killer is known): "uid was killed BY killerUid".
+                    if (killer != null)
+                        Broadcast(new JObject
+                        {
+                            ["event"] = "agent_killed",
+                            ["uid"] = a.UID,
+                            ["killerUid"] = killer.UID,
+                            ["killerName"] = string.IsNullOrEmpty(killer.agentRealName) ? killer.agentName : killer.agentRealName,
+                            ["killerIsPlayer"] = killer.isPlayer,
+                        });
                 }
                 _agentDead[a.UID] = a.dead;
             }
@@ -338,6 +367,56 @@ namespace EightPlayers
                     _playerHp[a.UID] = a.health;
                 }
             }
+
+            // status_applied / status_expired (ops-log §7b): diff the active
+            // status-effect name set on every player + mod-controlled body so a
+            // transient effect (GIANT/Fast/Enraged) is visible in the moment and
+            // remembered after it expires — instead of leaving zero trace.
+            foreach (var a in gc.agentList)
+            {
+                if (a == null || !(a.isPlayer > 0 || AiControl.IsControlled(a.UID)))
+                    continue;
+                DiffStatuses(a);
+            }
+        }
+
+        private static readonly HashSet<string> _tmpStatus = new HashSet<string>();
+
+        private static void DiffStatuses(Agent a)
+        {
+            _tmpStatus.Clear();
+            var list = a.statusEffects != null ? a.statusEffects.StatusEffectList : null;
+            if (list != null)
+                foreach (var se in list)
+                    if (se != null && !string.IsNullOrEmpty(se.statusEffectName))
+                        _tmpStatus.Add(se.statusEffectName);
+            if (!_statuses.TryGetValue(a.UID, out var prev))
+            {
+                // First observation of this body — record without replaying.
+                _statuses[a.UID] = new HashSet<string>(_tmpStatus);
+                return;
+            }
+            foreach (var eff in _tmpStatus)
+                if (!prev.Contains(eff))
+                    Broadcast(new JObject
+                    {
+                        ["event"] = "status_applied",
+                        ["target"] = a.UID,
+                        ["effect"] = eff,
+                        ["isPlayer"] = a.isPlayer,
+                    });
+            foreach (var eff in prev)
+                if (!_tmpStatus.Contains(eff))
+                    Broadcast(new JObject
+                    {
+                        ["event"] = "status_expired",
+                        ["target"] = a.UID,
+                        ["effect"] = eff,
+                        ["isPlayer"] = a.isPlayer,
+                    });
+            prev.Clear();
+            foreach (var eff in _tmpStatus)
+                prev.Add(eff);
         }
 
         private static void PrimeAgents(GameController gc)

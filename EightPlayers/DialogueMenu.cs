@@ -120,19 +120,24 @@ namespace EightPlayers
         }
     }
 
-    // 4. MUTE — issue #19 belt-and-braces: a flagged NPC's voice is entirely
-    //    externally authored (say/reply), so suppress ALL stock SayDialogue
-    //    lines from it (ambient chatter, battle barks, refusal lines — any
-    //    path not covered above). Vanilla treats "" as "said nothing", and
-    //    the external `say` path (Agent.Say) is untouched. All SayDialogue
-    //    overloads funnel into this one.
+    // 4. MUTE — issue #19 belt-and-braces + ops-log §8a: a flagged NPC's voice
+    //    is entirely externally authored (say/reply), so suppress ALL stock
+    //    SayDialogue lines from it (ambient chatter, battle barks, refusal lines
+    //    — any path not covered above). This ALSO covers every mod-CONTROLLED
+    //    body without a menu (spawned daemon bodies, GM-fed avatars, recruited
+    //    allies, behavior-driven NPCs — AiControl.IsControlled): the game fires
+    //    stock type-keyed chatter on its own AI/timer, so a controlled Comedian
+    //    told canned jokes between our lines. Muted here, a controlled character
+    //    speaks ONLY the words we give it via `say`. Vanilla treats "" as "said
+    //    nothing", and the external `say` path (Agent.Say) is untouched. All
+    //    SayDialogue overloads funnel into this one.
     [HarmonyPatch(typeof(Agent), nameof(Agent.SayDialogue),
         new[] { typeof(bool), typeof(string), typeof(bool), typeof(uint) })]
     internal static class DialogueMenu_Mute_Patch
     {
         private static bool Prefix(Agent __instance, ref string __result)
         {
-            if (!DialogueMenuCore.IsFlagged(__instance.UID))
+            if (!DialogueMenuCore.IsFlagged(__instance.UID) && !AiControl.IsControlled(__instance.UID))
                 return true;
             __result = "";
             return false;
