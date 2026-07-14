@@ -63,6 +63,15 @@ make_win_clone() {
     # Plugin dependencies (e.g. MoonSharp for the Lua behavior engine) must
     # ride along or BepInEx can't load the mod's behavior features.
     cp "$GAME/BepInEx/plugins/MoonSharp.Interpreter.dll" "$c/BepInEx/plugins/" 2>/dev/null || true
+    # The GM instance ('gm') is NOT a parity/test run — it wants the custom
+    # characters (the Wizard, etc.) and their big-quest fixes. Copy the
+    # CharacterCreator mod + its data-driven Characters/ folder for it, so a
+    # normal ./start.sh GM run loads them (test/parity clones stay pure above).
+    if [ "$1" = "gm" ]; then
+        cp "$GAME/BepInEx/plugins/CharacterCreator.dll" "$c/BepInEx/plugins/" 2>/dev/null || true
+        rm -rf "$c/BepInEx/plugins/Characters"
+        cp -r "$GAME/BepInEx/plugins/Characters" "$c/BepInEx/plugins/" 2>/dev/null || true
+    fi
 }
 
 # launch_win <name> <extra flatpak --env args...> -- <unity args...>
