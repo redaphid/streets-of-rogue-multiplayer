@@ -56,6 +56,17 @@ with the `EPCMD` prefix. Latency ≈ 0.5–1 s per round trip.
     AND remembered after they expire, instead of leaving zero trace. ops-log §7b.
   - `{"event":"player_hp","uid","player","hp","hpMax","delta"}` — player health
     swings ≥ 3 hp.
+  - `{"event":"player_action","text","kind","targetType"?,"player","points"}` —
+    the game's own CLASSIFIED player-action log. Every notable thing a player
+    does (kill a Cop, off an Innocent, arrest, steal, hack, destroy property,
+    complete a mission…) awards skill points via `SkillPoints.AddPoints` and
+    pops the upper-right "+N" notification; a Prefix on that (already
+    player-gated by the game) pushes one frame. `text` = the game's raw
+    pointsType label (e.g. `KillPointsInnocent`); `kind` = coarse bucket
+    (kill / knockout / arrest / theft / tamper / destruction / mission / bonus /
+    other); `targetType` (optional) names the victim class when the label does
+    (`Innocent` / `Rival` / `Robot`); `player` = `Agent.isPlayer` (1..4);
+    `points` = the `extraNum` multiplier. See `EightPlayers/PlayerActions.cs`.
   - `{"event":"menu_choice",...}` — pushed by DialogueMenu when a player presses
     a `setmenu` option.
   - `{"event":"quest_complete",...}` — pushed by StoryQuests on completion.

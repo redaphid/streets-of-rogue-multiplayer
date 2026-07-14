@@ -238,3 +238,47 @@ Vanilla "adding" = adding a case to N switches. With Harmony you patch those sam
 
 ### Key file map
 `InvItem.cs` (definition/instance) · `InvDatabase.cs` (inventory/equip) · `ItemFunctions.cs` (active use) · `Item.cs`/`SpawnerItem.cs` (world pickups) · `RandomItems.cs` + `RandomSelection.cs` (loot tree) · `StatusEffects.cs` (effects + traits + abilities + health) · `StatusEffect.cs`/`Trait.cs` (records) · `Unlock.cs`/`Unlocks.cs` (registry) · `NameDB.cs` (text) · `Agent.cs` `SetupAgentStats` (loadouts).
+
+## 7. Scoring — the classified player-action log (`SkillPoints`)
+
+`decompiled/SkillPoints.cs` — a per-Agent `MonoBehaviour` (`agent.skillPoints`).
+This is the game's **own taxonomy of notable player actions**: every time a
+player kills a Cop, offs an Innocent, arrests, steals, pickpockets, hacks,
+tampers with a device, destroys property, or completes a mission, gameplay code
+calls `agent.skillPoints.AddPoints("<pointsType>")` — which awards XP and pops
+the running **upper-right "+N" notification**.
+
+- **Single funnel:** `AddPoints(string pointsType)` → `AddPoints(string, int extraNum)`
+  → coroutine `AddPointsLate(string, int)` (big `switch` on `pointsType`
+  assigns the point value, applies trait/level multipliers, updates
+  `sessionData.skillPoints[isPlayer]`, and shows the notification / handles
+  level-ups).
+- **Already player-gated:** `AddPoints(string,int)` returns immediately unless
+  `agent.isPlayer > 0` (also bails on `questNotification.gameIsOver` /
+  `levelTransitioning`). So it fires **only** for players — the cleanest single
+  place to observe "a player just did a classified thing."
+- **The taxonomy is the `pointsType` string.** Kill family:
+  `KillPoints` / `KillPointsInnocent` / `KillPointsRival`,
+  `KnockOutPoints[Innocent|Rival]`, `ArrestedPoints[Innocent]`,
+  `IndirectlyKill[Innocent|Rival]`, `KilledRobot`. Crime/utility:
+  `StealPoints` (± variants), `PickpocketPoints`, `LockpickPoints`,
+  `UnlockSafePoints`, `HackPoints`, `DisarmDetonatorPoints`, `Tamper*Points`,
+  `PoisonAirPoints`, `RemoveWindowPoints`, `Shakedown[Fail]Points`,
+  `DestructionPoints[2]`, `FireExtinguishPoints`. Bonuses/missions:
+  `FindTreasure`, `FreedSlave`/`FreedPrisoner`, `Enslaved`, `Joke`,
+  `CompleteMission[Reduced|FindBombs]`, `WonElectionPoints`, `BigQuestBonus*`,
+  end-of-floor bonuses (`NoKillBonus`, `Massacre`, `TimeBonus`, …).
+- **Multiplayer:** on a networked host, a remote player's points RPC to that
+  client (`objectMult.RpcAddSkillPoints`) and `AddPoints` returns early on the
+  host — the point-award/notification runs on the owning client. So the hook
+  fires on whichever instance actually owns the action.
+- **Mod hook:** EightPlayers Prefixes `AddPoints(string,int)` to push a
+  `player_action` NDJSON frame on `/events` (see `EightPlayers/PlayerActions.cs`
+  and `docs/eightplayers/command-channel.md`). `SkillPoints.agent`/`gc` are
+  private — access via `AccessTools.Field`.
+- **Related but distinct:** floating over-head text (`+Chunk of Meat`, item
+  pickups) is `SpawnerMain.SpawnStatusText(...)` — a much noisier, non-scoring
+  feed. Karma/relationship shifts ("the Cops now hate you") live in
+  `Relationships.cs` / the enforcer system (`GameController.EnforcerAlert*`).
+  Both are candidate future signal sources but are NOT the classified
+  action-scoring log.
