@@ -114,8 +114,91 @@ _harness_pids() {
         esac
     done
 }
-kill_sor() { local pids; pids=$(_harness_pids); [ -n "$pids" ] && kill -9 $pids 2>/dev/null; true; }
+# kill_sor: stop harness games. Registry-aware — it SPARES clones that a
+# DIFFERENT live session has claimed (so a global cleanup never nukes another
+# Claude session's game). Kills this session's clones + any unclaimed ones.
+# In a single-session context (no foreign claims) this behaves as before.
+kill_sor() {
+    local p cwd name owner sid pids=""; sid=$(_session_id)
+    for p in $(_harness_pids); do
+        cwd=$(readlink "/proc/$p/cwd" 2>/dev/null) || continue
+        name=${cwd#"$CLONES/"}; name=${name%%/*}
+        owner=$(clone_owner "$name")
+        [ -n "$owner" ] && [ "$owner" != "$sid" ] && continue   # spare foreign-owned
+        pids="$pids $p"
+    done
+    [ -n "$pids" ] && kill -9 $pids 2>/dev/null; true
+}
 sor_running() { [ -n "$(_harness_pids)" ]; }
+
+# PIDs for ONE named instance only — so concurrent clones can be torn down
+# independently without nuking every other running instance. Scopes by cwd to
+# exactly "$CLONES/<name>" (and its subtree), NOT prefix-matching sibling names
+# (e.g. "gm" never matches "gm0").
+_harness_pids_one() {
+    local name=$1 p cwd
+    for p in $(pgrep -f 'StreetsOfRogue|proton run' 2>/dev/null); do
+        cwd=$(readlink "/proc/$p/cwd" 2>/dev/null) || continue
+        case "$cwd" in
+            "$CLONES/$name"|"$CLONES/$name"/*) echo "$p";;
+        esac
+    done
+}
+sor_running_one() { [ -n "$(_harness_pids_one "$1")" ]; }
+
+# ---- multi-session clone ownership registry -----------------------------
+# Several Claude sessions share this ONE clone pool. Without coordination a
+# session can launch into, or kill, a clone another session is actively using
+# (this happened). Fix: each session CLAIMS the clones it uses, and kill_sor_one
+# refuses to touch a clone owned by a different session. Registry is one
+# "<clone> <session> <epoch>" line per claimed clone, guarded by flock.
+_clone_reg()   { echo "$CLONES/.claude-clones"; }
+_session_id()  { echo "${CLAUDE_CODE_SESSION_ID:-local-$$}"; }
+clone_owner()  { local reg; reg=$(_clone_reg); [ -f "$reg" ] && awk -v n="$1" '$1==n{print $2; exit}' "$reg"; }
+owns_clone()   { local o; o=$(clone_owner "$1"); [ "$o" = "$(_session_id)" ]; }
+
+# claim_clone <name>: take ownership. Refuses (rc 1) if a DIFFERENT session owns
+# it AND that clone still has live procs (i.e. genuinely in use). Reclaims stale
+# (dead) or unowned names. Use before launching a clone.
+claim_clone() {
+    local name=$1 reg sid; reg=$(_clone_reg); sid=$(_session_id)
+    ( flock 9
+      local owner; owner=$(awk -v n="$name" '$1==n{print $2}' "$reg" 2>/dev/null)
+      if [ -n "$owner" ] && [ "$owner" != "$sid" ] && [ -n "$(_harness_pids_one "$name")" ]; then
+          echo "claim_clone: '$name' is in use by another live session ($owner). Use session_clone for a unique name." >&2
+          exit 1
+      fi
+      { grep -v -- "^$name " "$reg" 2>/dev/null; printf '%s %s %s\n' "$name" "$sid" "$(date +%s)"; } > "$reg.tmp"
+      mv "$reg.tmp" "$reg"
+    ) 9>"$reg.lock"
+}
+release_clone() {
+    local name=$1 reg sid; reg=$(_clone_reg); sid=$(_session_id)
+    ( flock 9
+      [ -f "$reg" ] && awk -v n="$name" -v s="$sid" '!($1==n && $2==s)' "$reg" > "$reg.tmp" && mv "$reg.tmp" "$reg"
+    ) 9>"$reg.lock"
+}
+# session_clone [suffix]: echo a collision-proof clone name for THIS session
+# (e.g. s17011c61-tiles) and claim it. Prefer this over hand-picked names.
+session_clone() {
+    local name; name="s$(_session_id | tr -d - | cut -c1-8)-${1:-t}"
+    claim_clone "$name" >/dev/null 2>&1 || return 1
+    echo "$name"
+}
+
+# kill_sor_one now ENFORCES ownership: it will not kill a clone owned by another
+# session. It kills clones this session owns (or that are unclaimed), then drops
+# the claim. For deliberate cross-session cleanup use kill_clone_force.
+kill_sor_one() {
+    local name=$1 owner pids; owner=$(clone_owner "$name")
+    if [ "$owner" != "$(_session_id)" ]; then
+        echo "kill_sor_one: refusing to kill '$name' — not claimed by this session (owner: ${owner:-none/unclaimed}). It may be another session pre-registry clone. Use kill_clone_force only if you are certain it is yours." >&2
+        return 1
+    fi
+    pids=$(_harness_pids_one "$name"); [ -n "$pids" ] && kill -9 $pids 2>/dev/null
+    release_clone "$name"; true
+}
+kill_clone_force() { local pids; pids=$(_harness_pids_one "$1"); [ -n "$pids" ] && kill -9 $pids 2>/dev/null; release_clone "$1"; true; }
 
 # ---- host-side window recording -----------------------------------------
 # The in-game ScreenCapture recorder writes nothing under Proton (the
